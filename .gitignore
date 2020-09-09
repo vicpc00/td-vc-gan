@@ -1,0 +1,16 @@
+#Checkpoints
+checkpoints/
+logs/
+
+#Datasets
+datasets/
+
+#Configuration
+config/*
+!config/default.yaml
+
+#Sypeder project
+.spyproject
+
+#pycache
+*/__pycache__

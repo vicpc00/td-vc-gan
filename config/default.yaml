@@ -1,0 +1,47 @@
+data: # root path of train/validation data (either relative/absoulte path is ok)
+  train: ''
+  validation: ''
+---
+train:
+  no_conv: True
+  num_workers: 32
+  batch_size: 4
+  optimizer: 'adam'
+  lr_g: 0.0001
+  lr_d: 0.0001
+  D_to_G_train_ratio: 1
+  adam_beta: [0.5, 0.999]
+  start_epoch: 0
+  num_epoch: 1000
+  gan_loss: 'lsgan'
+  rec_loss: 'feat'
+  lambda_cls: 10
+  lambda_rec: 10
+  lambda_idt: 1
+  lambda_feat: 10
+  max_segment: 65536
+---
+test:
+  batch_size: 1
+  num_tests: 10
+---
+model:
+  sample_rate: 16000
+  generator:
+    decoder_ratios: [8,4,4]
+    decoder_channels: [256,128,64,32]
+    num_bottleneck_layers: 9
+    conditional_dim: 16
+  discriminator:
+    num_disc: 3
+    num_layers: 4
+    num_channels_base: 16
+    num_channel_mult: 4
+    downsampling_factor: 4
+---
+log:
+  validation_interval: 5
+  log_interval: 1000
+  gen_interval: 10
+  gen_num: 15
+  save_interval: 25
