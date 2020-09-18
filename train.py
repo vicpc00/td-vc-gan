@@ -66,7 +66,8 @@ def main():
                   hp.model.generator.decoder_channels,
                   hp.model.generator.num_bottleneck_layers,
                   train_dataset.num_spk, 
-                  hp.model.generator.conditional_dim).to(device)
+                  hp.model.generator.conditional_dim,
+                  cond_instnorm = hp.model.generator.conditional_instance_norm).to(device)
     D = MultiscaleDiscriminator(hp.model.discriminator.num_disc,
                                 train_dataset.num_spk,
                                 hp.model.discriminator.num_layers,
@@ -223,7 +224,8 @@ def main():
                     break
                 signal_real, label_src = data
                 c_src = label2onehot(label_src,train_dataset.num_spk)
-                label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                
+                label_tgt = label_src if hp.train.no_conv else torch.randint(train_dataset.num_spk,label_src.shape)
                 c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
                 
                 signal_real = signal_real.to(device)

@@ -2,6 +2,18 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+class ConditionaInstanceNorm(nn.Module):
+    def __init__(self, n_channel, n_cond):
+        super().__init__()
+        self.norm = nn.InstanceNorm1d(n_channel, affine=False)
+        self.embedding = nn.Linear(n_cond, n_channel*2)
+    def forward(self, x, c):
+        h = self.embedding(c)
+        h = h.unsqueeze(2)
+        
+        gamma, beta = torch.chunk(h, chunks=2, dim=1)
+        return (1 + gamma) * self.norm(x) + beta
+
 class DecoderResnetBlock(nn.Module):
     def __init__(self, n_channel, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2):
         super().__init__()
@@ -37,7 +49,35 @@ class TranformResnetBlock(nn.Module):
     
     def forward(self,x):
         return self.block(x) + self.shortcut(x)
+    
+
+class CINTranformResnetBlock(nn.Module):
+    def __init__(self, n_channel, n_cond, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2):
+        super().__init__()
+        self.block = nn.ModuleList([
+                ConditionaInstanceNorm(n_channel, n_cond),
+                nn.LeakyReLU(leaky_relu_slope),
+                nn.Conv1d(n_channel,n_channel,
+                          kernel_size=kernel_size, 
+                          dilation=dilation,
+                          padding=dilation,padding_mode='reflect'),
+                ConditionaInstanceNorm(n_channel, n_cond),
+                nn.LeakyReLU(leaky_relu_slope),
+                nn.Conv1d(n_channel,n_channel,
+                           kernel_size=1)]
+                )
+        self.shortcut = nn.Conv1d(n_channel,n_channel, kernel_size=1)
         
+    def _residual(self,x,c):
+        for m in self.block:
+            if type(m) is ConditionaInstanceNorm:
+                x = m(x,c)
+            else:
+                x = m(x)
+        return x
+    
+    def forward(self,x,c):
+        return self._residual(x,c) + self.shortcut(x)
         
 class Encoder(nn.Module):
     def __init__(self,downsample_ratios,channel_sizes, n_res_blocks):
@@ -113,31 +153,49 @@ class Decoder(nn.Module):
         return self.decoder(x)
     
 class Generator(nn.Module):
-    def __init__(self, decoder_ratios, decoder_channels, num_bottleneck_layers, num_classes, conditional_dim):
+    def __init__(self, decoder_ratios, decoder_channels, num_bottleneck_layers, num_classes, conditional_dim,cond_instnorm=False):
         super().__init__()
         num_res_blocks = 3
+        self.cond_instnorm = cond_instnorm
         self.decoder = Decoder(decoder_ratios, decoder_channels, num_res_blocks)
         self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks)
         
-        bot_dim = decoder_channels[0]+conditional_dim
-        bottleneck = nn.ModuleList()
         
-        for i in range(num_bottleneck_layers):
-            bottleneck += [TranformResnetBlock(bot_dim, dilation=1)]
-        bottleneck += [nn.utils.weight_norm(nn.Conv1d(bot_dim,decoder_channels[0],kernel_size=1))]
-        self.bottleneck = nn.Sequential(*bottleneck)
+        bottleneck = nn.ModuleList()
+        if not self.cond_instnorm:
+            bot_dim = decoder_channels[0]+conditional_dim
+            for i in range(num_bottleneck_layers):
+                bottleneck += [TranformResnetBlock(bot_dim, dilation=1)]
+            bottleneck += [nn.utils.weight_norm(nn.Conv1d(bot_dim,decoder_channels[0],kernel_size=1))]
+        else:
+            bot_dim = decoder_channels[0]
+            for i in range(num_bottleneck_layers):
+                bottleneck += [CINTranformResnetBlock(bot_dim,conditional_dim, dilation=1)]
+        #self.bottleneck = nn.Sequential(*bottleneck)
+        self.bottleneck = bottleneck
+
         
         self.embedding = nn.Linear(num_classes, conditional_dim)
         #self.embedding = nn.Embedding(num_classes, conditional_dim)
         
+    def _bottleneck(self,x,c):
+        #print(self.bottleneck)
+        if not self.cond_instnorm:
+            c = c.unsqueeze(2).repeat(1,1,x.size(2))
+            x = torch.cat([x,c],dim=1)
+            for mod in self.bottleneck:
+                x = mod(x)
+        else:
+            for mod in self.bottleneck:
+                x = mod(x,c)
+            #x = self.bottleneck(x,c)
+        return x
+
     def forward(self,x,c):
         x = self.encoder(x)
         c = self.embedding(c)
 
-        c = c.unsqueeze(2).repeat(1,1,x.size(2))
-        x = torch.cat([x,c],dim=1)
-        
-        x = self.bottleneck(x)
+        x = self._bottleneck(x,c)
         
         x = self.decoder(x)
         
