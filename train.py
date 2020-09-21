@@ -2,6 +2,7 @@ import os
 import shutil
 import argparse
 from pathlib import Path
+import subprocess
 
 import soundfile as sf
 
@@ -46,7 +47,9 @@ def main():
     os.makedirs(save_path / 'generated', exist_ok=True)
     
     shutil.copy2(args.config_file, save_path / 'config.yaml')
-    
+    message = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
+    with open(save_path / 'githash','w') as f:
+        f.write(message.strip().decode('utf-8'))
     logger = tensorboard.SummaryWriter(str(save_path / 'logs'))
 
 
