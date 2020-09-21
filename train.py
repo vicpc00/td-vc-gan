@@ -9,6 +9,8 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+import torch.utils.tensorboard as tensorboard
+
 from model.generator import Generator
 from model.discriminator import MultiscaleDiscriminator
 import data.dataset as dataset
@@ -44,6 +46,8 @@ def main():
     os.makedirs(save_path / 'generated', exist_ok=True)
     
     shutil.copy2(args.config_file, save_path / 'config.yaml')
+    
+    logger = tensorboard.SummaryWriter(str(save_path / 'logs'))
 
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -213,6 +217,7 @@ def main():
             if iter_count % hp.log.log_interval == 0:
                 print('Epoch {}/{}, Iteration {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
                 for label, value in loss.items():
+                    logger.add_scalar(label,value,iter_count)
                     print(', {}: {:.4f}'.format(label, value),end='')
                 print()
             iter_count += 1
