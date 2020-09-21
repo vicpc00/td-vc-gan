@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+
 class ConditionaInstanceNorm(nn.Module):
     def __init__(self, n_channel, n_cond):
         super().__init__()
@@ -31,6 +32,7 @@ class DecoderResnetBlock(nn.Module):
     def forward(self,x):
         return self.block(x) + self.shortcut(x)
     
+#ResNet block from StarGAn. Main diff is relu-conv-norm order
 class TranformResnetBlock(nn.Module):
     def __init__(self, n_channel, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2, norm_layer=nn.InstanceNorm1d):
         super().__init__()
@@ -50,8 +52,27 @@ class TranformResnetBlock(nn.Module):
     def forward(self,x):
         return self.block(x) + self.shortcut(x)
     
+class ResnetBlock(nn.Module):
+    def __init__(self, n_channel, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2, norm_layer=nn.InstanceNorm1d, weight_norm = lambda x: x):
+        super().__init__()
+        self.block = nn.Sequential(
+                norm_layer(n_channel),
+                nn.LeakyReLU(leaky_relu_slope),
+                weight_norm(nn.Conv1d(n_channel,n_channel,
+                                      kernel_size=kernel_size, 
+                                      dilation=dilation,
+                                      padding=dilation,padding_mode='reflect')),
+                norm_layer(n_channel),
+                nn.LeakyReLU(leaky_relu_slope),
+                weight_norm(nn.Conv1d(n_channel,n_channel,
+                                      kernel_size=1))
+                )
+        self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
+    
+    def forward(self,x):
+        return self.block(x) + self.shortcut(x)
 
-class CINTranformResnetBlock(nn.Module):
+class CINResnetBlock(nn.Module):
     def __init__(self, n_channel, n_cond, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2):
         super().__init__()
         self.block = nn.ModuleList([
@@ -80,26 +101,39 @@ class CINTranformResnetBlock(nn.Module):
         return self._residual(x,c) + self.shortcut(x)
         
 class Encoder(nn.Module):
-    def __init__(self,downsample_ratios,channel_sizes, n_res_blocks):
+    def __init__(self,downsample_ratios,channel_sizes, n_res_blocks, normalization = 'weight_norm', speaker_conditioning = False):
         super().__init__()
         
         model = nn.ModuleList()
-        normalization = nn.utils.weight_norm
+        if normalization == 'weight_norm':
+            weight_norm = nn.utils.weight_norm
+            norm_layer = torch.nn.Identity
+        elif normalization == 'instance_norm':
+            norm_layer = nn.InstanceNorm1d
+            weight_norm = lambda x: x
+        elif normalization == 'cond_instance_norm':
+            norm_layer = ConditionaInstanceNorm
+            weight_norm = lambda x: x
         leaky_relu_slope = 0.2
         
-        model += [normalization(nn.Conv1d(1,channel_sizes[0],
-                                          kernel_size=7, padding=3,
-                                          padding_mode='reflect'))]
+        
+        model += [weight_norm(nn.Conv1d(1,channel_sizes[0],
+                              kernel_size=7, padding=3,
+                              padding_mode='reflect'))]
         
         for i,r in enumerate(downsample_ratios):
-            model += [nn.LeakyReLU(leaky_relu_slope),
-                      normalization(nn.Conv1d(channel_sizes[i], channel_sizes[i+1],
-                                              kernel_size = 2*r,
-                                              stride = r,
-                                              padding=r // 2 + r % 2,))]
+            model += [norm_layer(channel_sizes[0]),
+                      nn.LeakyReLU(leaky_relu_slope),
+                      weight_norm(nn.Conv1d(channel_sizes[i], channel_sizes[i+1],
+                                         kernel_size = 2*r,
+                                         stride = r,
+                                         padding=r // 2 + r % 2,))]
             for j in range(n_res_blocks): #wavenet resblocks
-                model += [DecoderResnetBlock(channel_sizes[i+1],dilation=3**j,
-                                      leaky_relu_slope=leaky_relu_slope)]
+                model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
+                                      leaky_relu_slope=leaky_relu_slope,
+                                      norm_layer = norm_layer,
+                                      weight_norm = weight_norm)]
+
         
         #self.encoder = model
         self.encoder = nn.Sequential(*model)
@@ -116,28 +150,41 @@ class Encoder(nn.Module):
           
 
 class Decoder(nn.Module):
-    def __init__(self,upsample_ratios,channel_sizes, n_res_blocks):
+    def __init__(self,upsample_ratios,channel_sizes, n_res_blocks, normalization = 'weight_norm', speaker_conditioning = False):
         super().__init__()
         
         model = nn.ModuleList()
-        normalization = nn.utils.weight_norm
+        if normalization == 'weight_norm':
+            weight_norm = nn.utils.weight_norm
+            norm_layer = torch.nn.Identity
+        elif normalization == 'instance_norm':
+            norm_layer = nn.InstanceNorm1d
+            weight_norm = lambda x: x
+        elif normalization == 'cond_instance_norm':
+            norm_layer = ConditionaInstanceNorm
+            weight_norm = lambda x: x
+            
         leaky_relu_slope = 0.2
         
         for i,r in enumerate(upsample_ratios):
-            model += [nn.LeakyReLU(leaky_relu_slope),
-                      normalization(nn.ConvTranspose1d(channel_sizes[i], channel_sizes[i+1],
+            model += [norm_layer(channel_sizes[i]),
+                      nn.LeakyReLU(leaky_relu_slope),
+                      weight_norm(nn.ConvTranspose1d(channel_sizes[i], channel_sizes[i+1],
                                                      kernel_size = 2*r,
                                                      stride = r,
                                                      padding=r // 2 + r % 2, #might only work for even r
                                                      output_padding=r % 2))]
-            for j in range(n_res_blocks): #wavenet resblocks
-                model += [DecoderResnetBlock(channel_sizes[i+1],dilation=3**j,
-                                      leaky_relu_slope=leaky_relu_slope)]
+        for j in range(n_res_blocks): #wavenet resblocks
+            model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
+                                  leaky_relu_slope=leaky_relu_slope,
+                                  norm_layer = norm_layer,
+                                  weight_norm = weight_norm)]
         
-        model += [nn.LeakyReLU(leaky_relu_slope),
-                  normalization(nn.Conv1d(channel_sizes[-1],1,
-                                          kernel_size=7, padding=3,
-                                          padding_mode='reflect')),
+        model += [norm_layer(channel_sizes[i]),
+                  nn.LeakyReLU(leaky_relu_slope),
+                  weight_norm(nn.Conv1d(channel_sizes[-1],1,
+                                        kernel_size=7, padding=3,
+                                        padding_mode='reflect')),
                   nn.Tanh()]
         #self.decoder = model
         self.decoder = nn.Sequential(*model)
@@ -157,24 +204,23 @@ class Generator(nn.Module):
         super().__init__()
         num_res_blocks = 3
         self.cond_instnorm = cond_instnorm
-        self.decoder = Decoder(decoder_ratios, decoder_channels, num_res_blocks)
-        self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks)
+        self.decoder = Decoder(decoder_ratios, decoder_channels, num_res_blocks, 'instance_norm', False)
+        self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, 'instance_norm', False)
         
         
         bottleneck = nn.ModuleList()
         if not self.cond_instnorm:
             bot_dim = decoder_channels[0]+conditional_dim
             for i in range(num_bottleneck_layers):
-                bottleneck += [TranformResnetBlock(bot_dim, dilation=1)]
+                bottleneck += [ResnetBlock(bot_dim, dilation=1)]
             bottleneck += [nn.utils.weight_norm(nn.Conv1d(bot_dim,decoder_channels[0],kernel_size=1))]
         else:
             bot_dim = decoder_channels[0]
             for i in range(num_bottleneck_layers):
-                bottleneck += [CINTranformResnetBlock(bot_dim,conditional_dim, dilation=1)]
+                bottleneck += [CINResnetBlock(bot_dim,conditional_dim, dilation=1)]
         #self.bottleneck = nn.Sequential(*bottleneck)
         self.bottleneck = bottleneck
 
-        
         self.embedding = nn.Linear(num_classes, conditional_dim)
         #self.embedding = nn.Embedding(num_classes, conditional_dim)
         
