@@ -2,18 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
-class ConditionaInstanceNorm(nn.Module):
-    def __init__(self, n_channel, n_cond):
-        super().__init__()
-        self.norm = nn.InstanceNorm1d(n_channel, affine=False)
-        self.embedding = nn.Linear(n_cond, n_channel*2)
-    def forward(self, x, c):
-        h = self.embedding(c)
-        h = h.unsqueeze(2)
-        
-        gamma, beta = torch.chunk(h, chunks=2, dim=1)
-        return (1 + gamma) * self.norm(x) + beta
+import util
+from model.conditional_instance_norm import ConditionalInstanceNorm
 
 class DecoderResnetBlock(nn.Module):
     def __init__(self, n_channel, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2):
@@ -76,13 +66,13 @@ class CINResnetBlock(nn.Module):
     def __init__(self, n_channel, n_cond, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2):
         super().__init__()
         self.block = nn.ModuleList([
-                ConditionaInstanceNorm(n_channel, n_cond),
+                ConditionalInstanceNorm(n_channel, n_cond),
                 nn.LeakyReLU(leaky_relu_slope),
                 nn.Conv1d(n_channel,n_channel,
                           kernel_size=kernel_size, 
                           dilation=dilation,
                           padding=dilation,padding_mode='reflect'),
-                ConditionaInstanceNorm(n_channel, n_cond),
+                ConditionalInstanceNorm(n_channel, n_cond),
                 nn.LeakyReLU(leaky_relu_slope),
                 nn.Conv1d(n_channel,n_channel,
                            kernel_size=1)]
@@ -91,7 +81,7 @@ class CINResnetBlock(nn.Module):
         
     def _residual(self,x,c):
         for m in self.block:
-            if type(m) is ConditionaInstanceNorm:
+            if type(m) is ConditionalInstanceNorm:
                 x = m(x,c)
             else:
                 x = m(x)
@@ -101,123 +91,177 @@ class CINResnetBlock(nn.Module):
         return self._residual(x,c) + self.shortcut(x)
         
 class Encoder(nn.Module):
-    def __init__(self,downsample_ratios,channel_sizes, n_res_blocks, normalization = 'weight_norm', speaker_conditioning = False):
+    def __init__(self,downsample_ratios,channel_sizes, n_res_blocks, conditional_dim = 0, norm_layer = nn.InstanceNorm1d, weight_norm = lambda x: x):
         super().__init__()
         
         model = nn.ModuleList()
-        if normalization == 'weight_norm':
-            weight_norm = nn.utils.weight_norm
-            norm_layer = torch.nn.Identity
-        elif normalization == 'instance_norm':
-            norm_layer = nn.InstanceNorm1d
-            weight_norm = lambda x: x
-        elif normalization == 'cond_instance_norm':
-            norm_layer = ConditionaInstanceNorm
-            weight_norm = lambda x: x
+        
+        self.spk_conditioning = conditional_dim > 0
+        self.cin = norm_layer is ConditionalInstanceNorm
+        if self.cin and not self.spk_conditioning:
+            print('WARNING: Using conditional instance normalization but conditional dimension is 0')
+        
+        
         leaky_relu_slope = 0.2
         
         
         model += [weight_norm(nn.Conv1d(1,channel_sizes[0],
                               kernel_size=7, padding=3,
                               padding_mode='reflect'))]
-        
+    
+        channel_sizes[0] += conditional_dim if not self.cin else 0    
+    
         for i,r in enumerate(downsample_ratios):
-            model += [norm_layer(channel_sizes[0]),
+            model += [norm_layer(channel_sizes[i]) if not self.cin else norm_layer(channel_sizes[i], conditional_dim),
                       nn.LeakyReLU(leaky_relu_slope),
                       weight_norm(nn.Conv1d(channel_sizes[i], channel_sizes[i+1],
                                          kernel_size = 2*r,
                                          stride = r,
                                          padding=r // 2 + r % 2,))]
             for j in range(n_res_blocks): #wavenet resblocks
-                model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
-                                      leaky_relu_slope=leaky_relu_slope,
-                                      norm_layer = norm_layer,
-                                      weight_norm = weight_norm)]
+                if not self.cin:
+                    model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
+                                          leaky_relu_slope=leaky_relu_slope,
+                                          norm_layer = norm_layer,
+                                          weight_norm = weight_norm)]
+                else:
+                    model += [CINResnetBlock(channel_sizes[i+1],conditional_dim, dilation=3**j,
+                                             leaky_relu_slope=leaky_relu_slope)]
 
         
-        #self.encoder = model
-        self.encoder = nn.Sequential(*model)
+        self.encoder = model
+        #self.encoder = nn.Sequential(*model)
     
-    def forward(self,x):
-        """
-        print(x.shape)
-        for model in self.encoder:
-            x = model(x)
-            print(x.shape)
+    def forward(self, x, c = None):
+        
+        if not self.cin:
+            x = self.encoder[0](x) #input layer
+            if self.spk_conditioning:
+                c = c.unsqueeze(2).repeat(1,1,x.size(2))
+                x = torch.cat([x,c],dim=1)
+            for mod in self.encoder[1:]:
+                x = mod(x)
+        else:
+            for mod in self.encoder:
+                if type(mod) is CINResnetBlock or type(mod) is ConditionalInstanceNorm:
+                    x = mod(x,c)
+                else:
+                    x = mod(x)
         return x
-        """
-        return self.encoder(x)
+        #return self.encoder(x)
           
 
 class Decoder(nn.Module):
-    def __init__(self,upsample_ratios,channel_sizes, n_res_blocks, normalization = 'weight_norm', speaker_conditioning = False):
+    def __init__(self,upsample_ratios,channel_sizes, n_res_blocks, conditional_dim = 0, norm_layer = nn.InstanceNorm1d, weight_norm = lambda x: x):
         super().__init__()
         
         model = nn.ModuleList()
-        if normalization == 'weight_norm':
-            weight_norm = nn.utils.weight_norm
-            norm_layer = torch.nn.Identity
-        elif normalization == 'instance_norm':
-            norm_layer = nn.InstanceNorm1d
-            weight_norm = lambda x: x
-        elif normalization == 'cond_instance_norm':
-            norm_layer = ConditionaInstanceNorm
-            weight_norm = lambda x: x
+        
+        self.spk_conditioning = conditional_dim > 0
+        self.cin = norm_layer is ConditionalInstanceNorm
+        if self.cin and not self.spk_conditioning:
+            print('WARNING: Using conditional instance normalization but conditional dimension is 0')
+        channel_sizes[0] += conditional_dim if not self.cin else 0
             
         leaky_relu_slope = 0.2
         
         for i,r in enumerate(upsample_ratios):
-            model += [norm_layer(channel_sizes[i]),
+            model += [norm_layer(channel_sizes[i]) if not self.cin else norm_layer(channel_sizes[i], conditional_dim),
                       nn.LeakyReLU(leaky_relu_slope),
                       weight_norm(nn.ConvTranspose1d(channel_sizes[i], channel_sizes[i+1],
                                                      kernel_size = 2*r,
                                                      stride = r,
                                                      padding=r // 2 + r % 2, #might only work for even r
                                                      output_padding=r % 2))]
-        for j in range(n_res_blocks): #wavenet resblocks
-            model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
-                                  leaky_relu_slope=leaky_relu_slope,
-                                  norm_layer = norm_layer,
-                                  weight_norm = weight_norm)]
+            for j in range(n_res_blocks): #wavenet resblocks
+                if not self.cin:
+                    model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
+                                          leaky_relu_slope=leaky_relu_slope,
+                                          norm_layer = norm_layer,
+                                          weight_norm = weight_norm)]
+                else:
+                    model += [CINResnetBlock(channel_sizes[i+1],conditional_dim, dilation=3**j,
+                                             leaky_relu_slope=leaky_relu_slope)]
         
-        model += [norm_layer(channel_sizes[i]),
+        model += [norm_layer(channel_sizes[i]) if not self.cin else norm_layer(channel_sizes[i], conditional_dim),
                   nn.LeakyReLU(leaky_relu_slope),
                   weight_norm(nn.Conv1d(channel_sizes[-1],1,
                                         kernel_size=7, padding=3,
                                         padding_mode='reflect')),
                   nn.Tanh()]
-        #self.decoder = model
-        self.decoder = nn.Sequential(*model)
+        self.decoder = model
+        #self.decoder = nn.Sequential(*model)
         
-    def forward(self,x):
-        """
-        print(x.shape)
-        for model in self.decoder:
-            x = model(x)
-            print(x.shape)
+    def forward(self, x, c = None):
+        if not self.cin:
+            if self.spk_conditioning:
+                c = c.unsqueeze(2).repeat(1,1,x.size(2))
+                x = torch.cat([x,c],dim=1)
+            for mod in self.decoder:
+                x = mod(x)
+        else:
+            for mod in self.decoder:
+                if type(mod) is CINResnetBlock or type(mod) is ConditionalInstanceNorm:
+                    x = mod(x,c)
+                else:
+                    x = mod(x)
         return x
-        """
-        return self.decoder(x)
-    
+        #return self.decoder(x)
+
 class Generator(nn.Module):
-    def __init__(self, decoder_ratios, decoder_channels, num_bottleneck_layers, num_classes, conditional_dim,cond_instnorm=False):
+    def __init__(self, decoder_ratios, decoder_channels, 
+                 num_bottleneck_layers, num_classes, conditional_dim,
+                 norm_layer = 'instance_norm', weight_norm = None, #either None, str or (str,str,str)
+                 bot_cond = 'target', enc_cond = None, dec_cond = None):
         super().__init__()
         num_res_blocks = 3
-        self.cond_instnorm = cond_instnorm
-        self.decoder = Decoder(decoder_ratios, decoder_channels, num_res_blocks, 'instance_norm', False)
-        self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, 'instance_norm', False)
         
+        
+        if type(norm_layer) is not tuple:
+            nl = util.get_norm_layer(norm_layer)
+            enc_norm_layer = nl
+            dec_norm_layer = nl
+            bot_norm_layer = nl
+        else:
+            bot_norm_layer = util.get_norm_layer(norm_layer[0])
+            enc_norm_layer = util.get_norm_layer(norm_layer[1])
+            dec_norm_layer = util.get_norm_layer(norm_layer[2])
+            
+            
+        if type(weight_norm) is not tuple:
+            nl = util.get_weight_norm(weight_norm)
+            enc_weight_norm = nl
+            dec_weight_norm = nl
+            bot_weight_norm = nl
+        else:
+            bot_weight_norm = util.get_weight_norm(weight_norm[0])
+            enc_weight_norm = util.get_weight_norm(weight_norm[1])
+            dec_weight_norm = util.get_weight_norm(weight_norm[2])
+            
+            
+        bot_cond_dim = conditional_dim if bot_cond == 'target' else 2*conditional_dim
+        enc_cond_dim = 0 if enc_cond == None else conditional_dim
+        dec_cond_dim = 0 if dec_cond == None else conditional_dim
+        
+        self.both_cond = bot_cond == 'both'
+        
+        self.cin = bot_norm_layer is ConditionalInstanceNorm
+        
+        
+        self.decoder = Decoder(decoder_ratios, decoder_channels, num_res_blocks, dec_cond_dim, dec_norm_layer, dec_weight_norm)
+        self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, enc_cond_dim, enc_norm_layer, enc_weight_norm)
         
         bottleneck = nn.ModuleList()
-        if not self.cond_instnorm:
-            bot_dim = decoder_channels[0]+conditional_dim
+        if not self.cin:
+            bot_dim = decoder_channels[0]+bot_cond_dim
             for i in range(num_bottleneck_layers):
-                bottleneck += [ResnetBlock(bot_dim, dilation=1)]
-            bottleneck += [nn.utils.weight_norm(nn.Conv1d(bot_dim,decoder_channels[0],kernel_size=1))]
+                bottleneck += [ResnetBlock(bot_dim, dilation=1,
+                                           norm_layer=bot_norm_layer, weight_norm = bot_weight_norm)]
+            bottleneck += [bot_weight_norm(nn.Conv1d(bot_dim,decoder_channels[0],kernel_size=1))]
         else:
             bot_dim = decoder_channels[0]
             for i in range(num_bottleneck_layers):
-                bottleneck += [CINResnetBlock(bot_dim,conditional_dim, dilation=1)]
+                bottleneck += [CINResnetBlock(bot_dim,bot_cond_dim, dilation=1)]
         #self.bottleneck = nn.Sequential(*bottleneck)
         self.bottleneck = bottleneck
 
@@ -226,7 +270,7 @@ class Generator(nn.Module):
         
     def _bottleneck(self,x,c):
         #print(self.bottleneck)
-        if not self.cond_instnorm:
+        if not self.cin:
             c = c.unsqueeze(2).repeat(1,1,x.size(2))
             x = torch.cat([x,c],dim=1)
             for mod in self.bottleneck:
@@ -237,12 +281,18 @@ class Generator(nn.Module):
             #x = self.bottleneck(x,c)
         return x
 
-    def forward(self,x,c):
-        x = self.encoder(x)
-        c = self.embedding(c)
-
-        x = self._bottleneck(x,c)
+    def forward(self,x,c_tgt, c_src = None):
+        c_tgt = self.embedding(c_tgt)
+        c_src = self.embedding(c_src) if c_src != None else None
         
-        x = self.decoder(x)
+        x = self.encoder(x,c_src)
+        
+        if self.both_cond:
+            c = torch.cat([c_src,c_tgt],dim=1)
+            x = self._bottleneck(x,c)
+        else:
+            x = self._bottleneck(x,c_tgt)
+        
+        x = self.decoder(x,c_tgt)
         
         return x

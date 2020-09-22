@@ -68,13 +68,17 @@ def main():
                                    num_workers=1,
                                    collate_fn=dataset.collate_fn,
                                    shuffle=True,pin_memory=True)
-
+    nl = hp.model.generator.norm_layer
+    wn = hp.model.generator.weight_norm
+    cond = hp.model.generator.conditioning
     G = Generator(hp.model.generator.decoder_ratios,
                   hp.model.generator.decoder_channels,
                   hp.model.generator.num_bottleneck_layers,
                   train_dataset.num_spk, 
                   hp.model.generator.conditional_dim,
-                  cond_instnorm = hp.model.generator.conditional_instance_norm).to(device)
+                  norm_layer = (nl.bottleneck, nl.encoder, nl.decoder),
+                  weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
+                  bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder).to(device)
     D = MultiscaleDiscriminator(hp.model.discriminator.num_disc,
                                 train_dataset.num_spk,
                                 hp.model.discriminator.num_layers,
@@ -116,7 +120,7 @@ def main():
             c_tgt = c_tgt.to(device)
 
             #Compute fake signal
-            signal_fake = G(signal_real,c_tgt)
+            signal_fake = G(signal_real,c_tgt,c_src)
 
             #Discriminator training
             #Real signal losses
@@ -159,7 +163,7 @@ def main():
             if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
 
                 #Fake signal losses
-                signal_fake = G(signal_real,c_tgt)
+                signal_fake = G(signal_real,c_tgt,c_src)
                 out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake)
                 #if hp.train.gan_loss == 'lsgan':
                 g_loss_adv_fake = 0
@@ -170,7 +174,7 @@ def main():
                     
                 if not hp.train.no_conv:
                     #Reconstructed signal losses
-                    signal_rec = G(signal_fake, c_src)
+                    signal_rec = G(signal_fake, c_src, c_tgt)
                     if hp.train.rec_loss == 'feat':
                         _, _, features_rec_list = D(signal_rec)
                         g_loss_rec = 0
@@ -186,7 +190,7 @@ def main():
                     #Identity loss
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
-                        signal_idt = G(signal_real, c_src)
+                        signal_idt = G(signal_real, c_src, c_src)
                     else:
                         signal_idt = signal_fake
                     if hp.train.rec_loss == 'feat':
@@ -242,8 +246,8 @@ def main():
                 c_src = c_src.to(device)
                 c_tgt = c_tgt.to(device)
                 
-                signal_fake = G(signal_real,c_tgt)
-                signal_rec = G(signal_fake,c_src)
+                signal_fake = G(signal_real,c_tgt,c_src)
+                signal_rec = G(signal_fake,c_src,c_tgt)
                 
                 signal_real = signal_real.squeeze().cpu().detach().numpy()
                 signal_fake = signal_fake.squeeze().cpu().detach().numpy()

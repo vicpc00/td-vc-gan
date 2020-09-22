@@ -3,7 +3,7 @@ data: # root path of train/validation data (either relative/absoulte path is ok)
   validation: ''
 ---
 train:
-  no_conv: False
+  no_conv: True
   num_workers: 32
   batch_size: 4
   optimizer: 'adam'
@@ -16,8 +16,8 @@ train:
   gan_loss: 'lsgan'
   rec_loss: 'feat'
   lambda_cls: 10
-  lambda_rec: 5
-  lambda_idt: 0
+  lambda_rec: 10
+  lambda_idt: 1
   lambda_feat: 10
   max_segment: 65536
 ---
@@ -32,7 +32,18 @@ model:
     decoder_channels: [256,128,64,32, 32]
     num_bottleneck_layers: 9
     conditional_dim: 16
-    conditional_instance_norm: True
+    norm_layer: 
+      encoder: 'conditional_instance_norm'
+      decoder: 'conditional_instance_norm'
+      bottleneck: 'conditional_instance_norm'
+    weight_norm:
+      encoder: null
+      decoder: null
+      bottleneck: null
+    conditioning:
+      encoder: 'source'
+      decoder: 'target'
+      bottleneck: 'both'
   discriminator:
     num_disc: 3
     num_layers: 4
