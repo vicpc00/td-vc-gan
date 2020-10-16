@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Discriminator(nn.Module):
-    def __init__(self, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4):
+    def __init__(self, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4, conditional_dim=32):
         super().__init__()
         
         normalization = nn.utils.weight_norm
@@ -33,16 +33,24 @@ class Discriminator(nn.Module):
                                              nn.LeakyReLU(leaky_relu_slope, inplace=True))]
 
         self.output_adversarial = normalization(nn.Conv1d(nf,1, kernel_size=3, stride=1, padding=1, bias=False))
-        self.output_classification = normalization(nn.Conv1d(nf,num_classes, kernel_size=3, stride=1, padding=1, bias=False))
+        #self.output_classification = normalization(nn.Conv1d(nf,num_classes, kernel_size=3, stride=1, padding=1, bias=False))
+        self.output_classification = normalization(nn.Conv1d(nf,conditional_dim, kernel_size=3, stride=1, padding=1, bias=False))
+        self.embedding = nn.Linear(2*num_classes, conditional_dim)
         
-    def forward(self,x):
+    def forward(self,x,c_tgt, c_src):
+        c = self.embedding(torch.cat((c_tgt, c_src),dim=1))
+        
         features = []
         for layer in self.discriminator:
             x = layer(x)
             features.append(x)
         out_adv = self.output_adversarial(x)
         out_cls = self.output_classification(x)
-        out_cls = F.avg_pool1d(out_cls,out_cls.size(2)).squeeze()
+        #TODO: make choice of cost customizable
+        #out_cls = F.avg_pool1d(out_cls,out_cls.size(2)).squeeze()
+        
+        c = c.unsqueeze(2).repeat(1,1,out_cls.size(2))
+        out_cls = torch.mean(c*out_cls,dim=1)
         
         return out_adv, out_cls, features
     
@@ -58,11 +66,11 @@ class MultiscaleDiscriminator(nn.Module):
         
 
         
-    def forward(self,x):
+    def forward(self,x,c_tgt, c_src):
         ret = []
         
         for disc in self.discriminators:
-            ret.append(disc(x))
+            ret.append(disc(x,c_tgt, c_src))
             x = self.pooling(x)
             
         out_adv, out_cls, features = zip(*ret)
