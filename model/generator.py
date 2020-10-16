@@ -247,8 +247,7 @@ class Generator(nn.Module):
         
         self.cin = bot_norm_layer is ConditionalInstanceNorm
         
-        
-        self.decoder = Decoder(decoder_ratios, decoder_channels, num_res_blocks, dec_cond_dim, dec_norm_layer, dec_weight_norm)
+        self.decoder = Decoder(decoder_ratios, decoder_channels[:], num_res_blocks, dec_cond_dim, dec_norm_layer, dec_weight_norm)
         self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, enc_cond_dim, enc_norm_layer, enc_weight_norm)
         
         bottleneck = nn.ModuleList()
