@@ -97,7 +97,7 @@ def main():
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
     iter_count = 0
-    for epoch in range(hp.train.start_epoch, hp.train.num_epoch):
+    for epoch in range(hp.train.start_epoch, hp.train.num_epoch+1):
         for i, data in enumerate(train_data_loader):
 
             loss = {}
@@ -127,10 +127,14 @@ def main():
             out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_tgt,c_src)
             #print(out_adv)
             #print(label_src.shape, out_cls_real_list[0].shape)
+            """
             d_loss_cls_real = 0
             for out_cls_real in out_cls_real_list:
                 #d_loss_cls_real += F.cross_entropy(out_cls_real, label_src)
                 d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
+            """
+
+
 
             #Fake signal losses
             out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
@@ -147,9 +151,16 @@ def main():
                 d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
                 d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
             d_gan_loss = d_loss_adv_real + d_loss_adv_fake
+
+            d_loss_cls_real = 0
+            d_loss_cls_fake = 0
+            for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
+                d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
+                d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
+            d_loss_cls = d_loss_cls_real+d_loss_cls_fake
             
             #Full loss
-            d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls_real
+            d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
             #Optimize
             optimizer_D.zero_grad()
             d_loss.backward()
@@ -159,6 +170,7 @@ def main():
             loss['D_loss_adv_real'] = d_loss_adv_real.item()
             loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
             loss['D_loss_cls_real'] = d_loss_cls_real.item()
+            loss['D_loss_cls_fake'] = d_loss_cls_fake.item()
 
             #Generator training
             if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
@@ -224,7 +236,7 @@ def main():
 
             #Print Losses
             if iter_count % hp.log.log_interval == 0:
-                print('Epoch {}/{}, Iteration {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
+                print('Epoch {}/{}, Itt {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
                 for label, value in loss.items():
                     logger.add_scalar(label,value,iter_count)
                     print(', {}: {:.4f}'.format(label, value),end='')
