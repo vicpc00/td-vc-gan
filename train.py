@@ -151,7 +151,7 @@ def main():
                 d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
                 d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
             d_gan_loss = d_loss_adv_real + d_loss_adv_fake
-
+            
             d_loss_cls_real = 0
             d_loss_cls_fake = 0
             for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
@@ -159,8 +159,9 @@ def main():
                 d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
             d_loss_cls = d_loss_cls_real+d_loss_cls_fake
             
+            
             #Full loss
-            d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
+            d_loss = d_gan_loss #+ hp.train.lambda_cls*d_loss_cls
             #Optimize
             optimizer_D.zero_grad()
             d_loss.backward()
@@ -220,7 +221,8 @@ def main():
                     
                 
                 #Full loss
-                g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
+                #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
+                g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
                 #Optimize
                 optimizer_D.zero_grad()
