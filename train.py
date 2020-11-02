@@ -124,7 +124,7 @@ def main():
 
             #Discriminator training
             #Real signal losses
-            out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_tgt,c_src)
+            out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
             #print(out_adv)
             #print(label_src.shape, out_cls_real_list[0].shape)
             """
@@ -191,7 +191,7 @@ def main():
                     #Reconstructed signal losses
                     signal_rec = G(signal_fake, c_src, c_tgt)
                     if hp.train.rec_loss == 'feat':
-                        _, _, features_rec_list = D(signal_rec,c_tgt,c_src)
+                        _, _, features_rec_list = D(signal_rec,c_src,c_tgt)
                         g_loss_rec = 0
                         for features_rec, features_real in zip(features_rec_list, features_real_list):
                             for feat_rec, feat_real in zip(features_rec, features_real):
@@ -209,7 +209,7 @@ def main():
                     else:
                         signal_idt = signal_fake
                     if hp.train.rec_loss == 'feat':
-                        _, _, features_idt_list = D(signal_idt,c_tgt,c_src)
+                        _, _, features_idt_list = D(signal_idt,c_src,c_src)
                         g_loss_idt = 0
                         for features_idt, features_real in zip(features_idt_list, features_real_list):
                             for feat_idt, feat_real in zip(features_idt, features_real):
