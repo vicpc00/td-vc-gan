@@ -1,6 +1,7 @@
 #Checkpoints
 checkpoints/
 logs/
+results/
 
 #Datasets
 datasets/
