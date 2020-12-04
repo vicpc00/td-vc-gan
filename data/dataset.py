@@ -6,6 +6,7 @@ import soundfile as sf
 import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
+import resampy
 
 class WaveDataset(Dataset):
 
@@ -33,7 +34,8 @@ class WaveDataset(Dataset):
         if self.mode == 'wav':
             signal,sr = sf.read(file_path)
             if sr != self.sr:
-                print('Warning: sample rate missmatch')
+                #print('Warning: sample rate missmatch')
+                signal = resampy.resample(signal,sr,self.sr)
         else:
             signal = np.load(file_path).T
         #print(signal.shape[0], self.max_segment_size)

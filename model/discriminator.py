@@ -61,12 +61,12 @@ class Discriminator(nn.Module):
         return out_adv+out_cls, out_cls, features
     
 class MultiscaleDiscriminator(nn.Module):
-    def __init__(self, num_disc, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4):
+    def __init__(self, num_disc, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4, conditional_dim=32):
         super().__init__()
         
         self.discriminators = nn.ModuleList()
         for i in range(num_disc):
-            self.discriminators += [Discriminator(num_classes, num_layers, num_channels_base, num_channel_mult, downsampling_factor)]
+            self.discriminators += [Discriminator(num_classes, num_layers, num_channels_base, num_channel_mult, downsampling_factor, conditional_dim)]
         
         self.pooling = nn.AvgPool1d(kernel_size=4, stride=2, padding=1, count_include_pad=False)
         

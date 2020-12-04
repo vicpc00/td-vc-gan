@@ -33,6 +33,7 @@ def parse_args():
     parser.add_argument('--data_path', required=True)
     parser.add_argument('--load_path', default=None)
     parser.add_argument('--config_file', default='./config/default.yaml')
+    parser.add_argument('--epoch', default=None)
     args = parser.parse_args()
     return args
 
@@ -46,7 +47,11 @@ def main():
     os.makedirs(save_path, exist_ok=True)
     os.makedirs(save_path / 'generated', exist_ok=True)
     
-    shutil.copy2(args.config_file, save_path / 'config.yaml')
+    if args.epoch != None:
+        shutil.copy2(args.config_file, save_path / 'config-epoch{}.yaml'.format(args.epoch))
+    else:
+        if args.config_file != save_path / 'config.yaml':
+            shutil.copy2(args.config_file, save_path / 'config.yaml')
     message = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
     with open(save_path / 'githash','w') as f:
         f.write(message.strip().decode('utf-8'))
@@ -84,12 +89,27 @@ def main():
                                 hp.model.discriminator.num_layers,
                                 hp.model.discriminator.num_channels_base,
                                 hp.model.discriminator.num_channel_mult,
-                                hp.model.discriminator.downsampling_factor).to(device)
+                                hp.model.discriminator.downsampling_factor,
+                                hp.model.discriminator.conditional_dim).to(device)
 
+    
     if load_path != None:
-        print('Loading from {}'.format(load_path / 'latest-G.pt'))
-        G.load_state_dict(torch.load(load_path / 'latest-G.pt', map_location=lambda storage, loc: storage))
-        D.load_state_dict(torch.load(load_path / 'latest-D.pt', map_location=lambda storage, loc: storage))
+        if args.epoch != None:
+            load_file_base = 'step{}'.format(args.epoch)
+            start_epoch = int(args.epoch) +1
+        else:
+            load_file_base = 'latest'
+            start_epoch = 0
+            """
+            with open(save_path / 'latest_epoch','r') as f:
+                start_epoch = int(f.read())
+            """
+            
+        print('Loading from {}'.format(load_path / '{}-G.pt'.format(load_file_base)))
+        G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+    else:
+        start_epoch = 0
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
     optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta) 
@@ -97,7 +117,7 @@ def main():
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
     iter_count = 0
-    for epoch in range(hp.train.start_epoch, hp.train.num_epoch+1):
+    for epoch in range(start_epoch, hp.train.num_epoch+1):
         for i, data in enumerate(train_data_loader):
 
             loss = {}
@@ -281,6 +301,8 @@ def main():
             torch.save(D.state_dict(), save_path / 'step{}-D.pt'.format(epoch))
             torch.save(G.state_dict(), save_path / 'latest-G.pt')
             torch.save(D.state_dict(), save_path / 'latest-D.pt')
+            with open(save_path / 'latest_epoch','w') as f:
+                f.write(str(epoch))
 
 
 if __name__ == '__main__':

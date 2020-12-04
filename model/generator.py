@@ -183,7 +183,7 @@ class Decoder(nn.Module):
                     model += [CINResnetBlock(channel_sizes[i+1],conditional_dim, dilation=3**j,
                                              leaky_relu_slope=leaky_relu_slope)]
         
-        model += [norm_layer(channel_sizes[i]) if not self.cin else norm_layer(channel_sizes[i], conditional_dim),
+        model += [norm_layer(channel_sizes[-1]) if not self.cin else norm_layer(channel_sizes[-1], conditional_dim),
                   nn.LeakyReLU(leaky_relu_slope),
                   weight_norm(nn.Conv1d(channel_sizes[-1],1,
                                         kernel_size=7, padding=3,

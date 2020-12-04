@@ -53,12 +53,17 @@ def main():
                                    collate_fn=dataset.collate_fn,
                                    shuffle=False,pin_memory=True)
     
+    nl = hp.model.generator.norm_layer
+    wn = hp.model.generator.weight_norm
+    cond = hp.model.generator.conditioning
     G = Generator(hp.model.generator.decoder_ratios,
                   hp.model.generator.decoder_channels,
                   hp.model.generator.num_bottleneck_layers,
                   test_dataset.num_spk, 
                   hp.model.generator.conditional_dim,
-                  cond_instnorm = hp.model.generator.conditional_instance_norm).to(device)
+                  norm_layer = (nl.bottleneck, nl.encoder, nl.decoder),
+                  weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
+                  bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder).to(device)
     
     g_file = 'step{}.py'.format(args.epoch) if args.epoch != None else 'latest-G.pt'
     print('Loading from {}'.format(load_path / g_file))
@@ -80,7 +85,7 @@ def main():
             
             c_tgt = c_tgt.to(device)
             
-            signal_fake = G(signal_real,c_tgt)
+            signal_fake = G(signal_real,c_tgt,c_src)
             
             signal_fake = signal_fake.squeeze().cpu().detach().numpy()
             
