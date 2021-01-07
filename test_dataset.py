@@ -69,6 +69,13 @@ def main():
     print('Loading from {}'.format(load_path / g_file))
     G.load_state_dict(torch.load(load_path / 'latest-G.pt', map_location=lambda storage, loc: storage))
     
+    ds_spks = []
+    for i, data in enumerate(test_data_loader):
+        signal_real, label_src = data
+        if label_src not in ds_spks:
+            ds_spks.append(label_src.item())
+    print(ds_spks)
+    
     for i, data in enumerate(test_data_loader):
         signal_real, label_src = data
         c_src = label2onehot(label_src,test_dataset.num_spk)
@@ -77,7 +84,7 @@ def main():
         label_src = label_src.item()
         #print(type(signal_real))
         
-        for tgt_spk in range(test_dataset.num_spk):
+        for tgt_spk in ds_spks:
             label_tgt = torch.tensor([tgt_spk])
             c_tgt = label2onehot(label_tgt,test_dataset.num_spk)
             #print(c_src, c_tgt)

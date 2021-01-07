@@ -50,8 +50,10 @@ def main():
     if args.epoch != None:
         shutil.copy2(args.config_file, save_path / 'config-epoch{}.yaml'.format(args.epoch))
     else:
-        if args.config_file != save_path / 'config.yaml':
+        try:
             shutil.copy2(args.config_file, save_path / 'config.yaml')
+        except shutil.SameFileError:
+            pass
     message = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
     with open(save_path / 'githash','w') as f:
         f.write(message.strip().decode('utf-8'))
@@ -181,7 +183,7 @@ def main():
             
             
             #Full loss
-            d_loss = d_gan_loss #+ hp.train.lambda_cls*d_loss_cls
+            d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
             #Optimize
             optimizer_D.zero_grad()
             d_loss.backward()
@@ -241,8 +243,8 @@ def main():
                     
                 
                 #Full loss
-                #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
-                g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
+                g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt
+                #g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
                 #Optimize
                 optimizer_D.zero_grad()
