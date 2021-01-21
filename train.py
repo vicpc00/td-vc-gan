@@ -167,6 +167,9 @@ def main():
             """
 
             #if hp.train.gan_loss == 'lsgan':
+            for i in range(len(out_adv_fake_list)):
+                out_adv_fake_list[i] += hp.train.lambda_cls*out_cls_fake_list[i]
+                out_adv_real_list[i] += hp.train.lambda_cls*out_cls_real_list[i]
             d_loss_adv_real = 0
             d_loss_adv_fake = 0
             for out_adv_fake, out_adv_real in zip(out_adv_fake_list,out_adv_real_list):
@@ -183,7 +186,7 @@ def main():
             
             
             #Full loss
-            d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
+            d_loss = d_gan_loss #+ hp.train.lambda_cls*d_loss_cls
             #Optimize
             optimizer_D.zero_grad()
             d_loss.backward()
@@ -205,6 +208,7 @@ def main():
                 g_loss_adv_fake = 0
                 g_loss_cls_fake = 0
                 for out_adv_fake, out_cls_fake in zip(out_adv_fake_list, out_cls_fake_list):
+                    out_adv_fake = out_adv_fake+hp.train.lambda_cls*out_cls_fake
                     g_loss_adv_fake += F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size()).to(device))
                     #g_loss_cls_fake += F.cross_entropy(out_cls_fake, label_tgt)
                     g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
@@ -243,7 +247,8 @@ def main():
                     
                 
                 #Full loss
-                g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt
+                g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt
+                #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
                 #Optimize
