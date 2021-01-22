@@ -56,7 +56,7 @@ class Discriminator(nn.Module):
         #out_cls = F.avg_pool1d(out_cls,out_cls.size(2)).squeeze()
         
         c = c.unsqueeze(2).repeat(1,1,out_cls.size(2))
-        out_cls = torch.mean(c*out_cls,dim=1)
+        out_cls = torch.mean(c*out_cls,dim=1).unsqueeze(1)
         
         return out_adv+out_cls, out_cls, features
     
