@@ -65,9 +65,9 @@ def main():
                   weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
                   bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder).to(device)
     
-    g_file = 'step{}.py'.format(args.epoch) if args.epoch != None else 'latest-G.pt'
+    g_file = 'step{}-G.pt'.format(args.epoch) if args.epoch != None else 'latest-G.pt'
     print('Loading from {}'.format(load_path / g_file))
-    G.load_state_dict(torch.load(load_path / 'latest-G.pt', map_location=lambda storage, loc: storage))
+    G.load_state_dict(torch.load(load_path / g_file, map_location=lambda storage, loc: storage))
     
     ds_spks = []
     for i, data in enumerate(test_data_loader):
