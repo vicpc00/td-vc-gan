@@ -58,7 +58,7 @@ class Discriminator(nn.Module):
         c = c.unsqueeze(2).repeat(1,1,out_cls.size(2))
         out_cls = torch.mean(c*out_cls,dim=1).unsqueeze(1)
         
-        return out_adv+out_cls, out_cls, features
+        return out_adv, out_cls, features
     
 class MultiscaleDiscriminator(nn.Module):
     def __init__(self, num_disc, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4, conditional_dim=32):
