@@ -82,6 +82,8 @@ def main():
         signal_real = signal_real.to(device)
         c_src = c_src.to(device)
         label_src = label_src.item()
+        file_name = test_data_loader.dataset.get_filename(i)
+        base_name = os.path.splitext(file_name)[0]
         #print(type(signal_real))
         
         for tgt_spk in ds_spks:
@@ -96,7 +98,8 @@ def main():
             
             signal_fake = signal_fake.squeeze().cpu().detach().numpy()
             
-            sf.write(save_path / 'sig{:02d}_{:1d}-{:1d}_conv.wav'.format(i,label_src,label_tgt),signal_fake,hp.model.sample_rate)
+            #sf.write(save_path / 'sig{:02d}_{:1d}-{:1d}_conv.wav'.format(i,label_src,label_tgt),signal_fake,hp.model.sample_rate)
+            sf.write(save_path / '{}_{:1d}-{:1d}_conv.wav'.format(base_name,label_src,label_tgt),signal_fake,hp.model.sample_rate)
             
         signal_real = signal_real.squeeze().cpu().detach().numpy()
         sf.write(save_path / 'sig{:02d}_{:1d}-X_orig.wav'.format(i,label_src),signal_real,hp.model.sample_rate)
