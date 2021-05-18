@@ -2,6 +2,8 @@
 checkpoints/
 logs/
 results/
+tests/
+run_vctk_tests.sh
 
 #Datasets
 datasets/
