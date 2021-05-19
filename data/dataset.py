@@ -22,6 +22,7 @@ class WaveDataset(Dataset):
         self.sr = sample_rate
         self.return_index = return_index
         self.max_segment_size = max_segment_size
+        self.augment = False
 
         self.spk_reverse_dict = {}
         for key,val in self.spk_dict.items():
@@ -38,9 +39,13 @@ class WaveDataset(Dataset):
                 signal = resampy.resample(signal,sr,self.sr)
         else:
             signal = np.load(file_path).T
+        if self.augment:
+            G = np.random.uniform(low=0.3, high=1.0)
+            signal = signal*G
         #print(signal.shape[0], self.max_segment_size)
         if self.max_segment_size and signal.shape[0] > self.max_segment_size:
             idx = np.random.randint(signal.shape[0] - self.max_segment_size)
+            #idx = torch.randint(signal.shape[0] - self.max_segment_size, (1,)).item()
             signal = signal[idx:idx+self.max_segment_size]
             
         label = self.spk_dict[label]

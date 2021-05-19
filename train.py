@@ -37,7 +37,15 @@ def parse_args():
     args = parser.parse_args()
     return args
 
+#Random seed updater for workers. 
+#See https://tanelp.github.io/posts/a-bug-that-plagues-thousands-of-open-source-ml-projects/
+def worker_init_fn(worker_id):                                                          
+    np.random.seed(np.random.get_state()[1][0] + worker_id)
+
 def main():
+    initial_seed = 1234
+    np.random.seed(initial_seed)
+    
     args = parse_args()
     save_path = Path(args.save_path)
     data_path = Path(args.data_path)
@@ -70,12 +78,14 @@ def main():
                                    batch_size=hp.train.batch_size,
                                    num_workers=int(hp.train.num_workers),
                                    collate_fn=dataset.collate_fn,
-                                   shuffle=True,pin_memory=True)
+                                   shuffle=True,pin_memory=True,
+                                   worker_init_fn=worker_init_fn)
     test_data_loader = torch.utils.data.DataLoader(test_dataset,
                                    batch_size=1,
                                    num_workers=1,
                                    collate_fn=dataset.collate_fn,
-                                   shuffle=True,pin_memory=True)
+                                   shuffle=True,pin_memory=True,
+                                   worker_init_fn=worker_init_fn)
     nl = hp.model.generator.norm_layer
     wn = hp.model.generator.weight_norm
     cond = hp.model.generator.conditioning
@@ -306,6 +316,9 @@ def main():
             torch.save(D.state_dict(), save_path / 'latest-D.pt')
             with open(save_path / 'latest_epoch','w') as f:
                 f.write(str(epoch))
+                
+        #Update random seed
+        np.random.seed(initial_seed+epoch)
 
 
 if __name__ == '__main__':
