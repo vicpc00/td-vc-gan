@@ -86,6 +86,7 @@ def main():
                                    collate_fn=dataset.collate_fn,
                                    shuffle=True,pin_memory=True,
                                    worker_init_fn=worker_init_fn)
+    val_data_loader = test_data_loader
     nl = hp.model.generator.norm_layer
     wn = hp.model.generator.weight_norm
     cond = hp.model.generator.conditioning
@@ -166,9 +167,6 @@ def main():
                 #d_loss_cls_real += F.cross_entropy(out_cls_real, label_src)
                 d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
             """
-
-
-
             #Fake signal losses
             out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
             """
@@ -277,6 +275,70 @@ def main():
                     print(', {}: {:.4f}'.format(label, value),end='')
                 print()
             iter_count += 1
+        if epoch % hp.log.val_interval == 0:
+            print('Validation loop')
+            G.eval()
+            D.eval()
+            loss = {}
+            with torch.no_grad():
+                for i, data in enumerate(val_data_loader):
+                    signal_real, label_src = data
+                    c_src = label2onehot(label_src,train_dataset.num_spk)
+                    if hp.train.no_conv:
+                        label_tgt = label_src
+                    else:
+                        #Random target label
+                        label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                    c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
+        
+                    #Send everything to device
+                    signal_real = signal_real.to(device)
+                    label_src = label_src.to(device)
+                    label_tgt = label_tgt.to(device)
+                    c_src = c_src.to(device)
+                    c_tgt = c_tgt.to(device)
+                    
+                    #Compute fake signal
+                    signal_fake = G(signal_real,c_tgt,c_src)
+                    #Real signal losses
+                    out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
+                    #Fake signal losses
+                    out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
+                    
+                    d_loss_adv_real = 0
+                    d_loss_adv_fake = 0
+                    for out_adv_fake, out_adv_real in zip(out_adv_fake_list,out_adv_real_list):
+                        d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
+                        d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
+                        g_loss_adv_fake += F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size()).to(device))
+                    d_gan_loss = d_loss_adv_real + d_loss_adv_fake
+                    
+                    d_loss_cls_real = 0
+                    d_loss_cls_fake = 0
+                    for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
+                        d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
+                        d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
+                        g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
+                    d_loss_cls = d_loss_cls_real+d_loss_cls_fake
+                    
+                    d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
+                    g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake
+                    
+                    loss.setdefault('val_loss_adv_real',0) += d_loss_adv_real.item()
+                    loss.setdefault('val_loss_adv_fake',0) += d_loss_adv_fake.item()
+                    loss.setdefault('val_loss_cls_real',0) += d_loss_cls_real.item()
+                    loss.setdefault('val_loss_cls_fake',0) += d_loss_cls_fake.item()
+                    loss.setdefault('val_D_loss',0) += d_loss.item()
+                    loss.setdefault('val_G_loss',0) += d_loss.item()
+                    
+            print('Val Epoch {}/{}, Itt {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
+            for label, value in loss.items():
+                logger.add_scalar(label,value/len(val_data_loader),iter_count)
+                print(', {}: {:.4f}'.format(label, value/len(val_data_loader)),end='')
+            print()
+            G.train()
+            D.train()
+                    
         #Gen exemples
         if epoch % hp.log.gen_interval == 0:
             print('Saving signals')
@@ -306,7 +368,7 @@ def main():
                 sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_orig.wav'.format(epoch,i,label_src,label_tgt),signal_real,hp.model.sample_rate)
                 sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_rec.wav'.format(epoch,i,label_src,label_tgt),signal_rec,hp.model.sample_rate)
 
-                
+
         #Save Model
         if epoch % hp.log.save_interval == 0:
             print('Saving checkpoint')
