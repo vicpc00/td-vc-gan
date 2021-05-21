@@ -54,12 +54,12 @@ def speechbrain_init(params_file):
 #TODO: compare embeddings with ref
 def speechbrain_speakerrec(test_file, ref_file, speaker_id, sb_params):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    rs = torchaudio.transforms.Resample(orig_freq=16000, new_freq=48000)
+    #rs = torchaudio.transforms.Resample(orig_freq=16000, new_freq=48000)
     
     #test_signal,sr = librosa.load(test_file, sr=sb_params['sample_rate'])
     #test_signal = torch.from_numpy(test_signal).unsqueeze(0).to(device)
     test_signal,sr = torchaudio.load(test_file)
-    test_signal = rs(test_signal)
+    test_signal = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)(test_signal)
     test_signal = test_signal.to(device)
     #print(test_signal.shape)
 
@@ -84,7 +84,7 @@ def speechbrain_speakerrec(test_file, ref_file, speaker_id, sb_params):
     #ref_signal,sr = librosa.load(ref_file, sr=sb_params['sample_rate'])
     #ref_signal = torch.from_numpy(ref_signal).unsqueeze(0).to(device)
     ref_signal,sr = torchaudio.load(ref_file)
-    ref_signal = rs(ref_signal)
+    ref_signal = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)(ref_signal)
     ref_signal = ref_signal.to(device)
     
     with torch.no_grad():
