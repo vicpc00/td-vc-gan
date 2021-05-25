@@ -4,6 +4,8 @@ logs/
 results/
 tests/
 run_vctk_tests.sh
+run_arctic_tests.sh
+cmu_gitcommits
 
 #Datasets
 datasets/

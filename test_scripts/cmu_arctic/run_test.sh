@@ -3,7 +3,7 @@
 model_dir=$1
 out_dir=$2
 
-epoch=200
+epoch=$3
 
 scrip_dir=test_scripts/cmu_arctic
 

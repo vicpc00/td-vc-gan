@@ -75,8 +75,8 @@ def main():
         signal_real, label_src = data
         if label_src not in ds_spks:
             ds_spks.append(label_src.item())
-    print(ds_spks)
-    print(test_data_loader.dataset.dataset)
+    #print(ds_spks)
+    #print(test_data_loader.dataset.dataset)
     
     for i, data in tqdm(enumerate(test_data_loader)):
         signal_real, label_src = data
