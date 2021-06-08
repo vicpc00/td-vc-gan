@@ -36,9 +36,9 @@ class Discriminator(nn.Module):
         #self.output_classification = normalization(nn.Conv1d(nf,num_classes, kernel_size=3, stride=1, padding=1, bias=False))
         self.output_classification = normalization(nn.Conv1d(nf,conditional_dim, kernel_size=3, stride=1, padding=1, bias=False))
         if conditional=='both':
-            self.embedding = nn.Linear(2*num_classes, conditional_dim)
+            self.embedding = nn.Linear(2*num_classes, nf)
         else:
-            self.embedding = nn.Linear(num_classes, conditional_dim)
+            self.embedding = nn.Linear(num_classes, nf)
         
     def forward(self,x,c_tgt, c_src=None):
         if c_src != None:
@@ -51,7 +51,8 @@ class Discriminator(nn.Module):
             x = layer(x)
             features.append(x)
         out_adv = self.output_adversarial(x)
-        out_cls = self.output_classification(x)
+        #out_cls = self.output_classification(x)
+        out_cls = x
         #TODO: make choice of cost customizable
         #out_cls = F.avg_pool1d(out_cls,out_cls.size(2)).squeeze()
         

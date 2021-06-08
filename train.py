@@ -121,12 +121,12 @@ def main():
             
         print('Loading from {}'.format(load_path / '{}-G.pt'.format(load_file_base)))
         G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
-        D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        #D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
     else:
         start_epoch = 0
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
-    optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta) 
+    optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
 
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
@@ -324,12 +324,12 @@ def main():
                     d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
                     g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake
                     
-                    loss.setdefault('val_loss_adv_real',0) += d_loss_adv_real.item()
-                    loss.setdefault('val_loss_adv_fake',0) += d_loss_adv_fake.item()
-                    loss.setdefault('val_loss_cls_real',0) += d_loss_cls_real.item()
-                    loss.setdefault('val_loss_cls_fake',0) += d_loss_cls_fake.item()
-                    loss.setdefault('val_D_loss',0) += d_loss.item()
-                    loss.setdefault('val_G_loss',0) += d_loss.item()
+                    loss['val_loss_adv_real'] = loss.setdefault('val_loss_adv_real',0) + d_loss_adv_real.item()
+                    loss['val_loss_adv_fake'] = loss.setdefault('val_loss_adv_fake',0) + d_loss_adv_fake.item()
+                    loss['val_loss_cls_real'] = loss.setdefault('val_loss_cls_real',0) + d_loss_cls_real.item()
+                    loss['val_loss_cls_fake'] = loss.setdefault('val_loss_cls_fake',0) + d_loss_cls_fake.item()
+                    loss['val_D_loss'] = loss.setdefault('val_D_loss',0) + d_loss.item()
+                    loss['val_G_loss'] = loss.setdefault('val_G_loss',0) + g_loss.item()
                     
             print('Val Epoch {}/{}, Itt {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
             for label, value in loss.items():
@@ -381,6 +381,7 @@ def main():
                 
         #Update random seed
         np.random.seed(initial_seed+epoch)
+
 
 
 if __name__ == '__main__':
