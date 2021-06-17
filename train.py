@@ -192,7 +192,7 @@ def main():
             
             
             #Full loss
-            d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
+            d_loss = d_gan_loss# + hp.train.lambda_cls*d_loss_cls
             #Optimize
             optimizer_D.zero_grad()
             d_loss.backward()
@@ -252,7 +252,7 @@ def main():
                     
                 
                 #Full loss
-                g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt
+                g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt #+ hp.train.lambda_cls*g_loss_cls_fake
                 #g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
                 #Optimize
