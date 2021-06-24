@@ -307,6 +307,7 @@ def main():
                     
                     d_loss_adv_real = 0
                     d_loss_adv_fake = 0
+                    g_loss_adv_fake = 0
                     for out_adv_fake, out_adv_real in zip(out_adv_fake_list,out_adv_real_list):
                         d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
                         d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
@@ -315,6 +316,7 @@ def main():
                     
                     d_loss_cls_real = 0
                     d_loss_cls_fake = 0
+                    g_loss_cls_fake = 0
                     for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
                         d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
                         d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
@@ -324,12 +326,12 @@ def main():
                     d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
                     g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake
                     
-                    loss.setdefault('val_loss_adv_real',0) += d_loss_adv_real.item()
-                    loss.setdefault('val_loss_adv_fake',0) += d_loss_adv_fake.item()
-                    loss.setdefault('val_loss_cls_real',0) += d_loss_cls_real.item()
-                    loss.setdefault('val_loss_cls_fake',0) += d_loss_cls_fake.item()
-                    loss.setdefault('val_D_loss',0) += d_loss.item()
-                    loss.setdefault('val_G_loss',0) += d_loss.item()
+                    loss['val_loss_adv_real'] = loss.setdefault('val_loss_adv_real',0) + d_loss_adv_real.item()
+                    loss['val_loss_adv_fake'] = loss.setdefault('val_loss_adv_fake',0) + d_loss_adv_fake.item()
+                    loss['val_loss_cls_real'] = loss.setdefault('val_loss_cls_real',0) + d_loss_cls_real.item()
+                    loss['val_loss_cls_fake'] = loss.setdefault('val_loss_cls_fake',0) + d_loss_cls_fake.item()
+                    loss['val_D_loss'] = loss.setdefault('val_D_loss',0) + d_loss.item()
+                    loss['val_G_loss'] = loss.setdefault('val_G_loss',0) + g_loss.item()
                     
             print('Val Epoch {}/{}, Itt {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
             for label, value in loss.items():
