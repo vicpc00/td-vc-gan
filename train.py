@@ -307,6 +307,7 @@ def main():
                     
                     d_loss_adv_real = 0
                     d_loss_adv_fake = 0
+                    g_loss_adv_fake = 0
                     for out_adv_fake, out_adv_real in zip(out_adv_fake_list,out_adv_real_list):
                         d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
                         d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
@@ -315,11 +316,12 @@ def main():
                     
                     d_loss_cls_real = 0
                     d_loss_cls_fake = 0
-                    for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
-                        d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-                        d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
-                        g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
-                    d_loss_cls = d_loss_cls_real+d_loss_cls_fake
+                    g_loss_cls_fake = 0
+#                    for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
+#                        d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
+#                        d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
+#                        g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
+#                    d_loss_cls = d_loss_cls_real+d_loss_cls_fake
                     
                     d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
                     g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake

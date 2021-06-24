@@ -3,7 +3,7 @@
 model_dir=$1
 out_dir=$2
 
-epoch=200
+epoch=100
 
 scrip_dir=test_scripts/vctk
 
@@ -13,7 +13,7 @@ scrip_dir=test_scripts/vctk
 #cp $model_dir/githash $out_dir
 #echo $epoch > $out_dir/epoch
 
-#python $scrip_dir/test_mcd.py --test_path $out_dir/signals/ --save_file $out_dir/dists_mcd
+python $scrip_dir/test_mcd.py --test_path $out_dir/signals/ --save_file $out_dir/dists_mcd
 
 python $scrip_dir/test_speaker_rec.py --test_path $out_dir/signals/ --save_file $out_dir/spkrec_results --speechbrain_hparam $scrip_dir/speechbrain_model/sb_classifier_hparams.yaml
 
