@@ -380,6 +380,7 @@ def main():
             torch.save(D.state_dict(), save_path / 'latest-D.pt')
             with open(save_path / 'latest_epoch','w') as f:
                 f.write(str(epoch))
+            print('Saved')
                 
         #Update random seed
         np.random.seed(initial_seed+epoch)

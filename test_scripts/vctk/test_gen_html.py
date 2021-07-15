@@ -353,14 +353,15 @@ def build_html(out_filename, test_dir):
         for tgt_spk in spks:
             mean_dists_orig[src_spk][tgt_spk] = [sum(result_dict_orig[src_spk][tgt_spk])/len(result_dict_orig[src_spk][tgt_spk])]
     """
-    
+    """
     with open(os.path.join(test_dir,'info'),'rb') as f:
         info_dict = pickle.load(f)
     with open(os.path.join(test_dir,'epoch'),'r') as f:
         epoch = f.read().rstrip()
     
     info = info_template.format(info_dict['git_commit'], epoch, info_dict['train_times'][epoch]/(60*60), time.strftime('%x %X',time.localtime(info_dict['start_time'])))
-
+    """
+    info = ''
     '''
     info += dist_template.format('Mean Mel Cepstral Distances between coverted signals', mean_dist)
     info += build_result_table(0, spks, mean_dists)
