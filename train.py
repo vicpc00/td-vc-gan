@@ -171,7 +171,7 @@ def main():
                 d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
             """
             #Fake signal losses
-            out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
+            out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_src,c_tgt)
             """
             d_loss_cls_fake = 0
             for out_cls_fake in out_cls_fake_list:
@@ -190,7 +190,7 @@ def main():
             d_loss_cls_fake = 0
             for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
                 d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-                d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
+                d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
             d_loss_cls = d_loss_cls_real+d_loss_cls_fake
             
             
