@@ -3,6 +3,7 @@ import shutil
 import argparse
 from pathlib import Path
 import subprocess
+import pickle
 
 import soundfile as sf
 
@@ -71,7 +72,8 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
 
-    train_dataset = dataset.WaveDataset(data_path / 'train_files', data_path / 'speakers', sample_rate=hp.model.sample_rate, max_segment_size = hp.train.max_segment)
+    train_dataset = dataset.WaveDataset(data_path / 'train_files', data_path / 'speakers', sample_rate=hp.model.sample_rate, 
+                                        max_segment_size = hp.train.max_segment, augment_noise = 1e-9)
     test_dataset = dataset.WaveDataset(data_path / 'test_files', data_path / 'speakers', sample_rate=hp.model.sample_rate)
 
     train_data_loader = torch.utils.data.DataLoader(train_dataset,
@@ -155,7 +157,8 @@ def main():
 
             #Compute fake signal
             signal_fake = G(signal_real,c_tgt,c_src)
-
+            
+            
             #Discriminator training
             #Real signal losses
             out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
@@ -196,6 +199,8 @@ def main():
             #Optimize
             optimizer_D.zero_grad()
             d_loss.backward()
+            if hp.train.grad_max_norm_D is not None:
+                torch.nn.utils.clip_grad_norm_(D.parameters(),hp.train.grad_max_norm_D)
             optimizer_D.step()
 
             #Logging
@@ -203,6 +208,10 @@ def main():
             loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
             loss['D_loss_cls_real'] = d_loss_cls_real.item()
             loss['D_loss_cls_fake'] = d_loss_cls_fake.item()
+            
+            #D_grad_norm = sum([param.grad.norm().item() for param in D.parameters()])
+            D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
+            loss['D_loss_grad_norm'] = D_grad_norm
 
             #Generator training
             if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
@@ -259,6 +268,23 @@ def main():
                 optimizer_D.zero_grad()
                 optimizer_G.zero_grad()
                 g_loss.backward()
+                
+                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
+                """
+                if G_grad_norm != G_grad_norm:
+                    dump = {}
+                    dump['signal_fake'] = signal_fake
+                    dump['signal_real'] = signal_real
+                    dump['grad'] = [param.grad for param in G.parameters()]
+                    dump['G_state_dict'] = G.state_dict()
+                    dump['D_state_dict'] = D.state_dict()
+                    with open(save_path / 'dump','wb') as f:
+                        pickle.dump(dump,f)
+                    raise Exception('NaN Error')
+                """
+                
+                if hp.train.grad_max_norm_G is not None:
+                    torch.nn.utils.clip_grad_norm_(G.parameters(),hp.train.grad_max_norm_G)
                 optimizer_G.step()
                 
                 #Logging
@@ -266,6 +292,10 @@ def main():
                 loss['G_loss_cls_fake'] = g_loss_cls_fake if type(g_loss_cls_fake) == int else g_loss_cls_fake.item()
                 loss['G_loss_rec'] = g_loss_rec if type(g_loss_rec) == int else g_loss_rec.item()
                 loss['G_loss_idt'] = g_loss_idt if type(g_loss_idt) == int else g_loss_idt.item()
+                
+                #G_grad_norm = sum([param.grad.norm().item() for param in G.parameters()])
+                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
+                loss['G_loss_grad_norm'] = G_grad_norm
 
             #Print Losses
             if iter_count % hp.log.log_interval == 0:

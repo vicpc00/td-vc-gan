@@ -10,7 +10,7 @@ import resampy
 
 class WaveDataset(Dataset):
 
-    def __init__(self, dataset_file, speaker_file, mode='wav', sample_rate=24000, max_segment_size = None, return_index = False):
+    def __init__(self, dataset_file, speaker_file, mode='wav', sample_rate=24000, max_segment_size = None, return_index = False, augment_noise = None, silence_threshold=None):
         
         with open(speaker_file,'rb') as f:
             self.spk_dict = pickle.load(f)
@@ -23,6 +23,9 @@ class WaveDataset(Dataset):
         self.return_index = return_index
         self.max_segment_size = max_segment_size
         self.augment = False
+        
+        self.augment_noise = augment_noise
+        self.silence_threshold = silence_threshold
 
         self.spk_reverse_dict = {}
         for key,val in self.spk_dict.items():
@@ -43,11 +46,17 @@ class WaveDataset(Dataset):
             G = np.random.uniform(low=0.3, high=1.0)
             signal = signal*G
         #print(signal.shape[0], self.max_segment_size)
+        idx = None
         if self.max_segment_size and signal.shape[0] > self.max_segment_size:
             idx = np.random.randint(signal.shape[0] - self.max_segment_size)
             #idx = torch.randint(signal.shape[0] - self.max_segment_size, (1,)).item()
             signal = signal[idx:idx+self.max_segment_size]
             
+        if len(signal[np.abs(signal)>0])==0:
+            print(f'All zero signal at signal {self.dataset[index]}, idx {idx}')
+        
+        if self.augment_noise != None:
+            signal = signal + np.random.randn(*signal.shape)*self.augment_noise
         label = self.spk_dict[label]
         if not self.return_index:
             return torch.FloatTensor(signal).unsqueeze(0), label
