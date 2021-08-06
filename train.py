@@ -145,13 +145,14 @@ def main():
                 label_tgt = label_src
             else:
                 #Random target label
-                label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                #label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                label_tgt = (label_src + torch.randint(1,train_dataset.num_spk,label_src.shape))%train_dataset.num_spk
             c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
 
             #Send everything to device
             signal_real = signal_real.to(device)
-            label_src = label_src.to(device)
-            label_tgt = label_tgt.to(device)
+            #label_src = label_src.to(device)
+            #label_tgt = label_tgt.to(device)
             c_src = c_src.to(device)
             c_tgt = c_tgt.to(device)
 
@@ -215,6 +216,15 @@ def main():
 
             #Generator training
             if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
+
+                #New targets
+                if hp.train.no_conv:
+                    label_tgt = label_src
+                else:
+                    #Random target label
+                    label_tgt = (label_src + torch.randint(0,train_dataset.num_spk,label_src.shape))%train_dataset.num_spk
+                c_tgt = label2onehot(label_tgt,train_dataset.num_spk).to(device)
+
 
                 #Fake signal losses
                 signal_fake = G(signal_real,c_tgt,c_src)
