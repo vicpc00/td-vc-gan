@@ -3,6 +3,7 @@ checkpoints/
 logs/
 results/
 tests/
+tests_old/
 run_vctk_tests.sh
 run_arctic_tests.sh
 cmu_gitcommits
@@ -20,3 +21,4 @@ config/*
 
 #pycache
 */__pycache__
+**/__pycache__
