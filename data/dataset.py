@@ -48,9 +48,13 @@ class WaveDataset(Dataset):
         #print(signal.shape[0], self.max_segment_size)
         idx = None
         if self.max_segment_size and signal.shape[0] > self.max_segment_size:
-            idx = np.random.randint(signal.shape[0] - self.max_segment_size)
-            #idx = torch.randint(signal.shape[0] - self.max_segment_size, (1,)).item()
-            signal = signal[idx:idx+self.max_segment_size]
+            aux_sig = np.zeros(self.max_segment_size)
+            #TODO Better zero detection/removal
+            while len(aux_sig[np.abs(aux_sig)>0])==0:
+                idx = np.random.randint(signal.shape[0] - self.max_segment_size)
+                #idx = torch.randint(signal.shape[0] - self.max_segment_size, (1,)).item()
+                aux_sig = signal[idx:idx+self.max_segment_size]
+            signal = aux_sig
             
         if len(signal[np.abs(signal)>0])==0:
             print(f'All zero signal at signal {self.dataset[index]}, idx {idx}')
