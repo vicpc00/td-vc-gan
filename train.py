@@ -106,7 +106,8 @@ def main():
                                 hp.model.discriminator.num_channels_base,
                                 hp.model.discriminator.num_channel_mult,
                                 hp.model.discriminator.downsampling_factor,
-                                hp.model.discriminator.conditional_dim).to(device)
+                                hp.model.discriminator.conditional_dim,
+                                hp.model.discriminator.conditional_spks).to(device)
 
     
     if load_path != None:
@@ -162,7 +163,10 @@ def main():
             
             #Discriminator training
             #Real signal losses
-            out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
+            if hp.model.discriminator.conditional_spks == 'both':
+                out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
+            else:
+                out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src)
             #print(out_adv)
             #print(label_src.shape, out_cls_real_list[0].shape)
             """
@@ -172,7 +176,11 @@ def main():
                 d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
             """
             #Fake signal losses
-            out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_src,c_tgt)
+            if hp.model.discriminator.conditional_spks == 'both':
+                out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_src,c_tgt)
+            else:
+                out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_src)
+            
             """
             d_loss_cls_fake = 0
             for out_cls_fake in out_cls_fake_list:
@@ -228,7 +236,10 @@ def main():
 
                 #Fake signal losses
                 signal_fake = G(signal_real,c_tgt,c_src)
-                out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt,c_src)
+                if hp.model.discriminator.conditional_spks == 'both':
+                    out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt,c_src)
+                else:
+                    out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt)
                 #if hp.train.gan_loss == 'lsgan':
                 g_loss_adv_fake = 0
                 g_loss_cls_fake = 0
@@ -241,7 +252,10 @@ def main():
                     #Reconstructed signal losses
                     signal_rec = G(signal_fake, c_src, c_tgt)
                     if hp.train.rec_loss == 'feat':
-                        _, _, features_rec_list = D(signal_rec,c_src,c_tgt)
+                        if hp.model.discriminator.conditional_spks == 'both':
+                            _, _, features_rec_list = D(signal_rec,c_src,c_tgt)
+                        else:
+                            _, _, features_rec_list = D(signal_rec,c_src)
                         g_loss_rec = 0
                         for features_rec, features_real in zip(features_rec_list, features_real_list):
                             for feat_rec, feat_real in zip(features_rec, features_real):
@@ -259,7 +273,10 @@ def main():
                     else:
                         signal_idt = signal_fake
                     if hp.train.rec_loss == 'feat':
-                        _, _, features_idt_list = D(signal_idt,c_src,c_src)
+                        if hp.model.discriminator.conditional_spks == 'both':
+                            _, _, features_idt_list = D(signal_idt,c_src,c_src)
+                        else:
+                            _, _, features_idt_list = D(signal_idt,c_src)
                         g_loss_idt = 0
                         for features_idt, features_real in zip(features_idt_list, features_real_list):
                             for feat_idt, feat_real in zip(features_idt, features_real):
@@ -340,36 +357,47 @@ def main():
                     
                     #Compute fake signal
                     signal_fake = G(signal_real,c_tgt,c_src)
-                    #Real signal losses
-                    out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
-                    #Fake signal losses
-                    out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
+                    if hp.model.discriminator.conditional_spks == 'both':
+                        #Real signal losses
+                        out_adv_real_list, out_cls_real_list, _ = D(signal_real,c_src,c_tgt)
+                        #Fake signal losses
+                        out_adv_fake_d_list, out_cls_d_fake_list, _ = D(signal_fake.detach(),c_src,c_tgt)
+                        out_adv_fake_g_list, out_cls_g_fake_list, _ = D(signal_fake.detach(),c_tgt,c_src)
+                    else:
+                        #Real signal losses
+                        out_adv_real_list, out_cls_real_list, _ = D(signal_real,c_src)
+                        #Fake signal losses
+                        out_adv_fake_d_list, out_cls_fake_d_list, _ = D(signal_fake.detach(),c_src)
+                        out_adv_fake_g_list, out_cls_fake_g_list, _ = D(signal_fake.detach(),c_tgt)
+                        
                     
                     d_loss_adv_real = 0
                     d_loss_adv_fake = 0
                     g_loss_adv_fake = 0
-                    for out_adv_fake, out_adv_real in zip(out_adv_fake_list,out_adv_real_list):
+                    for out_adv_real, out_adv_fake_d, out_adv_fake_g in zip(out_adv_real_list,out_adv_fake_d_list,out_adv_fake_g_list):
                         d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
-                        d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
-                        g_loss_adv_fake += F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size()).to(device))
+                        d_loss_adv_fake += F.mse_loss(out_adv_fake_d,torch.zeros(out_adv_fake_d.size()).to(device))
+                        g_loss_adv_fake += F.mse_loss(out_adv_fake_g,torch.ones(out_adv_fake_g.size()).to(device))
                     d_gan_loss = d_loss_adv_real + d_loss_adv_fake
                     
                     d_loss_cls_real = 0
                     d_loss_cls_fake = 0
                     g_loss_cls_fake = 0
-                    for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
+                    for out_cls_real, out_cls_fake_d, out_cls_fake_g in zip(out_cls_real_list,out_cls_fake_d_list,out_cls_fake_g_list):
                         d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-                        d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
-                        g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
+                        d_loss_cls_fake += F.mse_loss(out_cls_fake_d,torch.zeros(out_cls_fake_d.size()).to(device))
+                        g_loss_cls_fake += F.mse_loss(out_cls_fake_g,torch.ones(out_cls_fake_g.size()).to(device))
                     d_loss_cls = d_loss_cls_real+d_loss_cls_fake
                     
                     d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
                     g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake
                     
-                    loss['val_loss_adv_real'] = loss.setdefault('val_loss_adv_real',0) + d_loss_adv_real.item()
-                    loss['val_loss_adv_fake'] = loss.setdefault('val_loss_adv_fake',0) + d_loss_adv_fake.item()
-                    loss['val_loss_cls_real'] = loss.setdefault('val_loss_cls_real',0) + d_loss_cls_real.item()
-                    loss['val_loss_cls_fake'] = loss.setdefault('val_loss_cls_fake',0) + d_loss_cls_fake.item()
+                    loss['val_d_loss_adv_real'] = loss.setdefault('val_d_loss_adv_real',0) + d_loss_adv_real.item()
+                    loss['val_d_loss_adv_fake'] = loss.setdefault('val_d_loss_adv_fake',0) + d_loss_adv_fake.item()
+                    loss['val_d_loss_cls_real'] = loss.setdefault('val_d_loss_cls_real',0) + d_loss_cls_real.item()
+                    loss['val_d_loss_cls_fake'] = loss.setdefault('val_d_loss_cls_fake',0) + d_loss_cls_fake.item()
+                    loss['val_g_loss_adv_fake'] = loss.setdefault('val_g_loss_adv_fake',0) + g_loss_adv_fake.item()
+                    loss['val_g_loss_cls_fake'] = loss.setdefault('val_g_loss_cls_fake',0) + g_loss_cls_fake.item()
                     loss['val_D_loss'] = loss.setdefault('val_D_loss',0) + d_loss.item()
                     loss['val_G_loss'] = loss.setdefault('val_G_loss',0) + g_loss.item()
                     
