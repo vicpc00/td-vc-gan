@@ -83,7 +83,7 @@ def build_tables(phrase_ids, spks, result_dict):
 
 def build_audio_and_result_table(phrase_id, phrase_idx, spks, result_dict):
     #print(phrase_id, phrase_idx,len(result_dict[spks[0]][spks[0]]))
-    table = html_table_headers.format(2*len(spks)+3,len(spks)+1)
+    table = html_table_headers.format(3*len(spks)+3,len(spks)+1)
     table += '<tr>\n<td></td>\n'
     for tgt_spk in spks:
         table += f'<td>{tgt_spk}</td>\n'
@@ -95,7 +95,7 @@ def build_audio_and_result_table(phrase_id, phrase_idx, spks, result_dict):
         
     for src_spk in spks:
         table += '<tr>\n'
-        table += f'<td rowspan="2">{src_spk}</td>\n'
+        table += f'<td rowspan="3">{src_spk}</td>\n'
         for tgt_spk in spks:
             table += f'<td><audio id="player" controls preload="none"><source src="signals/arctic_{phrase_id}_cmu_us_{src_spk}_arctic-cmu_us_{tgt_spk}_arctic_conv.wav" /></audio></td>\n'
         table += '</tr>\n'
@@ -106,7 +106,10 @@ def build_audio_and_result_table(phrase_id, phrase_idx, spks, result_dict):
 #        table += '</tr>\n'
         table += '<tr>\n'
         for tgt_spk in spks:
-            table += f'<td>{result_dict["test_mcd"][src_spk][tgt_spk][int(phrase_id[1:])-1]:.2f}</td>\n'
+            table += f'<td>{result_dict["mcd_result_conv"][src_spk][tgt_spk][int(phrase_id[1:])-1]:.2f}</td>\n'
+        table += '</tr>\n'
+        for tgt_spk in spks:
+            table += f'<td>{result_dict["mos_result_conv"][src_spk][tgt_spk][int(phrase_idx)]:.2f}</td>\n'
         table += '</tr>\n'
 #        table += '<tr>\n'
 #        for tgt_spk in spks:
@@ -230,12 +233,22 @@ def build_result_sumary(result_dict):
     table += '''
       <tr>
         <td style="text-align:center;">Mel cepstral distance</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-      </tr>\n'''.format(*dict_stats(result_dict['test_mcd'], False))
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['mcd_result_conv'], False))
+      
+    table += '''
+      <tr>
+        <td style="text-align:center;">Predicted MOS</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['mos_result_conv'], False))
       
 #    table += '''
 #      <tr>
@@ -275,12 +288,12 @@ def build_result_sumary(result_dict):
     table += '''
       <tr>
         <td style="text-align:center;">Mel cepstral distance (source speaker)</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-      </tr>\n'''.format(*dict_stats(result_dict['ref_mcd'], False))
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['mcd_result_orig'], False))
 #      
 #    table += '''
 #      <tr>
@@ -300,7 +313,7 @@ def build_result_sumary(result_dict):
 #    sumary += '<h3>Speaker recognition correct rate</h2>\n'
 #    sumary += build_sumary_table(dict_correct_rate_per_pair(result_dict['test_class']))
     sumary += '<h3>Mel cepstral distance</h2>\n'
-    sumary += build_sumary_table(dict_stats_per_pair(result_dict['test_mcd']))
+    sumary += build_sumary_table(dict_stats_per_pair(result_dict['mcd_result_conv']))
 #    sumary += '<h3>Embedding distance</h2>\n'
 #    sumary += build_sumary_table(dict_stats_per_pair(result_dict['emb_dist']))
     
@@ -308,7 +321,7 @@ def build_result_sumary(result_dict):
     return sumary
       
 def load_dicts(test_dir):
-    result_files = ['mcd_results']
+    result_files = ['mcd_results', 'mosnet_results']
     result_dict = {}
     
     for rf in result_files:
