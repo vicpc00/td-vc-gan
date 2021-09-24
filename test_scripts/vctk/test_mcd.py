@@ -64,9 +64,11 @@ def mfcc_dist(test_file, ref_file, sr=16000):
         ref_mcep = ref_mcep[ref_f0 > 0] #Remove silence
         
         ref_mceps[ref_file] = ref_mcep
-    
+
     (dist, path) = fastdtw(test_mcep, ref_mcep, dist=2)
-    
+    if len(path) == 0:
+        print(test_file,ref_file)
+        
     return dist/len(path)
 
 
