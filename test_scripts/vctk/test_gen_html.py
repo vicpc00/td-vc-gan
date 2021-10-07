@@ -83,7 +83,7 @@ def build_tables(phrase_ids, spks, result_dict):
 
 def build_audio_and_result_table(phrase_id, phrase_idx, spks, result_dict):
     #print(phrase_id, phrase_idx,len(result_dict[spks[0]][spks[0]]))
-    table = html_table_headers.format(4*len(spks)+3,len(spks)+1)
+    table = html_table_headers.format(5*len(spks)+3,len(spks)+1)
     table += '<tr>\n<td></td>\n'
     for tgt_spk in spks:
         table += f'<td>{tgt_spk}</td>\n'
@@ -95,7 +95,7 @@ def build_audio_and_result_table(phrase_id, phrase_idx, spks, result_dict):
         
     for src_spk in spks:
         table += '<tr>\n'
-        table += f'<td rowspan="4">{src_spk}</td>\n'
+        table += f'<td rowspan="5">{src_spk}</td>\n'
         for tgt_spk in spks:
             table += f'<td><audio id="player" controls preload="none"><source src="signals/{src_spk}_{phrase_id}_{src_spk}-{tgt_spk}_conv.wav" /></audio></td>\n'
         table += '</tr>\n'
@@ -106,11 +106,15 @@ def build_audio_and_result_table(phrase_id, phrase_idx, spks, result_dict):
         table += '</tr>\n'
         table += '<tr>\n'
         for tgt_spk in spks:
-            table += f'<td>{result_dict["test_mcd"][src_spk][tgt_spk][int(phrase_idx)]:.2f}</td>\n'
+            table += f'<td>{result_dict["mcd_result_conv"][src_spk][tgt_spk][int(phrase_idx)]:.2f}</td>\n'
         table += '</tr>\n'
         table += '<tr>\n'
         for tgt_spk in spks:
             table += f'<td>{result_dict["emb_dist"][src_spk][tgt_spk][int(phrase_idx)]:.2f}</td>\n'
+        table += '</tr>\n'
+        table += '<tr>\n'
+        for tgt_spk in spks:
+            table += f'<td>{result_dict["mos_result_conv"][src_spk][tgt_spk][int(phrase_idx)]:.2f}</td>\n'
         table += '</tr>\n'
     return html_table_template.format(table)
 
@@ -214,7 +218,7 @@ def dict_correct_rate_per_pair(result_dict):
 
 def build_result_sumary(result_dict):
     sumary = '<h2>Objective measures sumary</h2>\n'
-    sumary += '<b>Speaker recognition correct rate</b>: {:.2f}&pm;{:.03f}<br/>\n'.format(*dict_correct_rate(result_dict['test_class']))
+    sumary += '<b>Speaker recognition correct rate</b>: {:.3f}&pm;{:.03f}<br/>\n'.format(*dict_correct_rate(result_dict['test_class']))
     sumary += '<b>Real valued measure statistics (excluding self transformation):</b><br/>'
     table = '''
       <tr>
@@ -229,21 +233,21 @@ def build_result_sumary(result_dict):
     table += '''
       <tr>
         <td style="text-align:center;">Mel cepstral distance</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-      </tr>\n'''.format(*dict_stats(result_dict['test_mcd'], False))
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['mcd_result_conv'], False))
       
     table += '''
       <tr>
         <td style="text-align:center;">Embedding distance</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
       </tr>\n'''.format(*dict_stats(result_dict['emb_dist'], False))
       
     table += '''
@@ -255,6 +259,16 @@ def build_result_sumary(result_dict):
         <td style="text-align:center;">{:.2e}</td>
         <td style="text-align:center;">{:.2e}</td>
       </tr>\n'''.format(*dict_stats(result_dict['test_tgt_prob'], False))
+      
+    table += '''
+      <tr>
+        <td style="text-align:center;">Predicted MOS</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['mos_result_conv'], False))
       
     sumary += html_table_template.format(table)
     
@@ -274,12 +288,12 @@ def build_result_sumary(result_dict):
     table += '''
       <tr>
         <td style="text-align:center;">Mel cepstral distance (source speaker)</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-        <td style="text-align:center;">{:.2f}</td>
-      </tr>\n'''.format(*dict_stats(result_dict['ref_mcd'], False))
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['mcd_result_orig'], False))
       
     table += '''
       <tr>
@@ -299,15 +313,17 @@ def build_result_sumary(result_dict):
     sumary += '<h3>Speaker recognition correct rate</h2>\n'
     sumary += build_sumary_table(dict_correct_rate_per_pair(result_dict['test_class']))
     sumary += '<h3>Mel cepstral distance</h2>\n'
-    sumary += build_sumary_table(dict_stats_per_pair(result_dict['test_mcd']))
-    sumary += '<h3>Embedding distance</h2>\n'
+    sumary += build_sumary_table(dict_stats_per_pair(result_dict['mcd_result_conv']))
+    sumary += '<h3>Embedding similarity</h2>\n'
     sumary += build_sumary_table(dict_stats_per_pair(result_dict['emb_dist']))
+    sumary += '<h3>Predicted MOS</h2>\n'
+    sumary += build_sumary_table(dict_stats_per_pair(result_dict['mos_result_conv']))
     
     
     return sumary
       
 def load_dicts(test_dir):
-    result_files = ['spkrec_results']#, 'mcd_results']
+    result_files = ['spkrec_results', 'mosnet_results', 'mcd_results']
     result_dict = {}
     
     for rf in result_files:
@@ -316,10 +332,10 @@ def load_dicts(test_dir):
         for k in tmp_dict.keys():
             result_dict[k] = tmp_dict[k]
             
-    with open(os.path.join(test_dir,'dists_mcd'),'rb') as f:
-        result_dict['test_mcd'] = pickle.load(f)
-    with open(os.path.join(test_dir,'dists_mcd_orig'),'rb') as f:
-        result_dict['ref_mcd'] = pickle.load(f)
+#    with open(os.path.join(test_dir,'mcd_result_conv'),'rb') as f:
+#        result_dict['mcd_result_conv'] = pickle.load(f)
+#    with open(os.path.join(test_dir,'mcd_result_orig'),'rb') as f:
+#        result_dict['mcd_result_orig'] = pickle.load(f)
         
     return result_dict
 
@@ -345,7 +361,7 @@ def build_html(out_filename, test_dir):
         
     
     """
-    with open(os.path.join(test_dir,'dists_mcd_orig'),'rb') as f:
+    with open(os.path.join(test_dir,'mcd_result_orig'),'rb') as f:
         result_dict_orig = pickle.load(f)
     mean_dists_orig = dict.fromkeys(result_dict.keys())
     for src_spk in spks:
