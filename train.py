@@ -212,6 +212,13 @@ def main():
             #D_grad_norm = sum([param.grad.norm().item() for param in D.parameters()])
             D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
             loss['D_loss_grad_norm'] = D_grad_norm
+            
+            #el out_adv_real_list, out_cls_real_list
+            #del out_adv_fake_list, out_cls_fake_list, features_fake_list
+            #del out_adv_fake, out_adv_real, d_gan_loss
+            #del out_cls_real, out_cls_fake, d_loss_cls
+            #del d_loss
+            
 
             #Generator training
             if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
@@ -296,9 +303,16 @@ def main():
                 #G_grad_norm = sum([param.grad.norm().item() for param in G.parameters()])
                 G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
                 loss['G_loss_grad_norm'] = G_grad_norm
-
+                
+                #del out_adv_fake_list, out_cls_fake_list
+                #del out_adv_fake, out_cls_fake
+                #del g_loss_adv_fake, g_loss_cls_fake
+                #del features_rec_list, features_rec, features_real, feat_rec, feat_real, g_loss_rec
+                #del g_loss
+            
             #Print Losses
             if iter_count % hp.log.log_interval == 0:
+                #print(torch.cuda.memory_summary(device=None, abbreviated=False))
                 print('Epoch {}/{}, Itt {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
                 for label, value in loss.items():
                     logger.add_scalar(label,value,iter_count)

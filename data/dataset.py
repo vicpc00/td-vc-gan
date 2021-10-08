@@ -81,7 +81,7 @@ def collate_fn(data):
 
     signals, labels = zip(*data)
     max_len = max([sig.shape[1] for sig in signals])
-    max_len = -256*(-max_len//256)
+    max_len = -1024*(-max_len//1024)
     signals_pad = [F.pad(sig, (0,max_len - sig.shape[1]), 'constant', value=0) for sig in signals]
 
     return torch.stack(signals_pad), torch.LongTensor(labels)
