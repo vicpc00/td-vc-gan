@@ -34,6 +34,6 @@ class LatentClassifier(nn.Module):
     def forward(self,x):
         for layer in self.classifier:
             x = layer(x)
-        out = F.avg_pool1d(x,x.size(2)).squeeze()
+        out = F.avg_pool1d(x,x.size(2)).squeeze(2)
         
         return out

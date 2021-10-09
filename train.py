@@ -227,7 +227,7 @@ def main():
             optimizer_C.step()
             
             loss['C_loss'] = c_loss.item()
-            loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
+            #loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
             
             #del out_adv_real_list, out_cls_real_list
             #del out_adv_fake_list, out_cls_fake_list, features_fake_list
