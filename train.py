@@ -15,6 +15,7 @@ import torch.utils.tensorboard as tensorboard
 
 from model.generator import Generator
 from model.discriminator import MultiscaleDiscriminator
+from model.latent_classifier import LatentClassifier
 import data.dataset as dataset
 
 from util.hparams import HParam
@@ -92,6 +93,7 @@ def main():
     nl = hp.model.generator.norm_layer
     wn = hp.model.generator.weight_norm
     cond = hp.model.generator.conditioning
+    latent_classier = True
     G = Generator(hp.model.generator.decoder_ratios,
                   hp.model.generator.decoder_channels,
                   hp.model.generator.num_bottleneck_layers,
@@ -99,7 +101,8 @@ def main():
                   hp.model.generator.conditional_dim,
                   norm_layer = (nl.bottleneck, nl.encoder, nl.decoder),
                   weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
-                  bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder).to(device)
+                  bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder,
+                  output_content_emb = latent_classier).to(device)
     D = MultiscaleDiscriminator(hp.model.discriminator.num_disc,
                                 train_dataset.num_spk,
                                 hp.model.discriminator.num_layers,
@@ -107,6 +110,7 @@ def main():
                                 hp.model.discriminator.num_channel_mult,
                                 hp.model.discriminator.downsampling_factor,
                                 hp.model.discriminator.conditional_dim).to(device)
+    C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0]).to(device)
 
     
     if load_path != None:
@@ -129,6 +133,7 @@ def main():
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
     optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta) 
+    optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta) 
 
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
@@ -157,7 +162,6 @@ def main():
 
             #Compute fake signal
             signal_fake = G(signal_real,c_tgt,c_src)
-            
             
             #Discriminator training
             #Real signal losses
@@ -213,7 +217,19 @@ def main():
             D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
             loss['D_loss_grad_norm'] = D_grad_norm
             
-            #el out_adv_real_list, out_cls_real_list
+            #Latent classifier step
+            sig_cont_emb = G.content_embedding
+            out_lat_cls = C(sig_cont_emb)
+            c_loss = F.cross_entropy(out_lat_cls,label_src)
+            
+            optimizer_C.zero_grad()
+            c_loss.backward()
+            optimizer_C.step()
+            
+            loss['C_loss'] = c_loss.item()
+            loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
+            
+            #del out_adv_real_list, out_cls_real_list
             #del out_adv_fake_list, out_cls_fake_list, features_fake_list
             #del out_adv_fake, out_adv_real, d_gan_loss
             #del out_cls_real, out_cls_fake, d_loss_cls
@@ -266,9 +282,14 @@ def main():
                 else:
                     g_loss_idt = 0
                     
+                #Latent classification loss
+                sig_cont_emb = G.content_embedding
+                out_lat_cls = C(sig_cont_emb)
+                g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
+                lambda_latcls = 1
                 
                 #Full loss
-                g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt
+                g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt + lambda_latcls*g_loss_lat_cls
                 #g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
                 #Optimize
@@ -295,10 +316,11 @@ def main():
                 optimizer_G.step()
                 
                 #Logging
-                loss['G_loss_adv_fake'] = g_loss_adv_fake if type(g_loss_adv_fake) == int else g_loss_adv_fake.item()
+                loss['G_loss_adv_fake'] = g_loss_adv_fake if type(g_loss_adv_fake) == int else g_loss_adv_fake.item() #Check if int because it can be 0
                 loss['G_loss_cls_fake'] = g_loss_cls_fake if type(g_loss_cls_fake) == int else g_loss_cls_fake.item()
                 loss['G_loss_rec'] = g_loss_rec if type(g_loss_rec) == int else g_loss_rec.item()
                 loss['G_loss_idt'] = g_loss_idt if type(g_loss_idt) == int else g_loss_idt.item()
+                loss['G_loss_lat_cls'] = g_loss_lat_cls if type(g_loss_lat_cls) == int else g_loss_lat_cls.item()
                 
                 #G_grad_norm = sum([param.grad.norm().item() for param in G.parameters()])
                 G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
@@ -367,6 +389,11 @@ def main():
                         g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
                     d_loss_cls = d_loss_cls_real+d_loss_cls_fake
                     
+                    sig_cont_emb = G.content_embedding
+                    out_lat_cls = C(sig_cont_emb)
+                    g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
+                    c_acc = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)
+                    
                     d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
                     g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake
                     
@@ -374,8 +401,10 @@ def main():
                     loss['val_loss_adv_fake'] = loss.setdefault('val_loss_adv_fake',0) + d_loss_adv_fake.item()
                     loss['val_loss_cls_real'] = loss.setdefault('val_loss_cls_real',0) + d_loss_cls_real.item()
                     loss['val_loss_cls_fake'] = loss.setdefault('val_loss_cls_fake',0) + d_loss_cls_fake.item()
+                    loss['val_loss_lat_cls'] = loss.setdefault('val_loss_lat_cls',0) + g_loss_lat_cls.item()
                     loss['val_D_loss'] = loss.setdefault('val_D_loss',0) + d_loss.item()
                     loss['val_G_loss'] = loss.setdefault('val_G_loss',0) + g_loss.item()
+                    loss['val_C_acc'] = loss.setdefault('val_C_acc',0) + c_acc.item()
                     
             print('Val Epoch {}/{}, Itt {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
             for label, value in loss.items():
