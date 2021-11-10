@@ -229,11 +229,11 @@ def main():
             loss['C_loss'] = c_loss.item()
             #loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
             
-            #del out_adv_real_list, out_cls_real_list
-            #del out_adv_fake_list, out_cls_fake_list, features_fake_list
-            #del out_adv_fake, out_adv_real, d_gan_loss
-            #del out_cls_real, out_cls_fake, d_loss_cls
-            #del d_loss
+            del out_adv_real_list, out_cls_real_list
+            del out_adv_fake_list, out_cls_fake_list, features_fake_list
+            del out_adv_fake, out_adv_real, d_gan_loss
+            del out_cls_real, out_cls_fake, d_loss_cls
+            del d_loss
             
 
             #Generator training
@@ -326,11 +326,11 @@ def main():
                 G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
                 loss['G_loss_grad_norm'] = G_grad_norm
                 
-                #del out_adv_fake_list, out_cls_fake_list
-                #del out_adv_fake, out_cls_fake
-                #del g_loss_adv_fake, g_loss_cls_fake
+                del out_adv_fake_list, out_cls_fake_list
+                del out_adv_fake, out_cls_fake
+                del g_loss_adv_fake, g_loss_cls_fake
                 #del features_rec_list, features_rec, features_real, feat_rec, feat_real, g_loss_rec
-                #del g_loss
+                del g_loss
             
             #Print Losses
             if iter_count % hp.log.log_interval == 0:
@@ -449,8 +449,10 @@ def main():
             print('Saving checkpoint')
             torch.save(G.state_dict(), save_path / 'step{}-G.pt'.format(epoch))
             torch.save(D.state_dict(), save_path / 'step{}-D.pt'.format(epoch))
+            torch.save(C.state_dict(), save_path / 'step{}-C.pt'.format(epoch))
             torch.save(G.state_dict(), save_path / 'latest-G.pt')
             torch.save(D.state_dict(), save_path / 'latest-D.pt')
+            torch.save(C.state_dict(), save_path / 'latest-C.pt')
             with open(save_path / 'latest_epoch','w') as f:
                 f.write(str(epoch))
             print('Saved')
