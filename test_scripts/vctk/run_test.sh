@@ -1,12 +1,12 @@
 #while [ $(basename &(pwd)) -neq td-stargan-vc ]; do cd ..; done
 
-echo $0 $1 $2
+echo $0 $1 $2 $3
 
 model_dir=$1
 out_dir=$2
 
-epoch=100
-device=1
+epoch=200
+device=$3
 
 scrip_dir=test_scripts/vctk
 mosnet_dir=../MOSNet
