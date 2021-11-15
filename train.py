@@ -128,6 +128,7 @@ def main():
         print('Loading from {}'.format(load_path / '{}-G.pt'.format(load_file_base)))
         G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
         D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
     else:
         start_epoch = 0
 
