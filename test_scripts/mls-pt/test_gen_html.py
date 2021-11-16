@@ -241,6 +241,15 @@ def build_result_sumary(result_dict):
         <td style="text-align:center;">{:.2e}</td>
       </tr>\n'''.format(*dict_stats(result_dict['test_tgt_prob'], False))
       
+    table += '''
+      <tr>
+        <td style="text-align:center;">Embedding cossine similarity</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['emb_dist'], False))
       
     sumary += html_table_template.format(table)
     
@@ -249,7 +258,8 @@ def build_result_sumary(result_dict):
     
     sumary += '<h3>Speaker recognition correct rate</h2>\n'
     sumary += build_sumary_table(dict_correct_rate_per_pair(result_dict['test_class']))
-    
+    sumary += '<h3>Embedding cossine similarity</h2>\n'
+    sumary += build_sumary_table(dict_stats_per_pair(result_dict['emb_dist']))
     
     return sumary
       
@@ -286,7 +296,7 @@ def build_html(out_filename, test_dir):
     spks.sort()
     phrase_ids = list(phrase_ids)
     phrase_ids.sort()
-    print(phrase_ids,spks)
+    #print(phrase_ids,spks)
     
     result_dict = load_dicts(test_dir)
         

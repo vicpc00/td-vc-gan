@@ -355,7 +355,7 @@ def build_html(out_filename, test_dir):
     spks.sort()
     phrase_ids = list(phrase_ids)
     phrase_ids.sort()
-    print(phrase_ids,spks)
+    #print(phrase_ids,spks)
     
     result_dict = load_dicts(test_dir)
         

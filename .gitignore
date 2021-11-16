@@ -6,6 +6,7 @@ tests/
 tests_old/
 run_vctk_tests.sh
 run_arctic_tests.sh
+run_mls-pt_tests.sh
 cmu_gitcommits
 test_nans.py
 
