@@ -287,10 +287,9 @@ def main():
                 sig_cont_emb = G.content_embedding
                 out_lat_cls = C(sig_cont_emb)
                 g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
-                lambda_latcls = 1
                 
                 #Full loss
-                g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt + lambda_latcls*g_loss_lat_cls
+                g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt + hp.train.lambda_latcls*g_loss_lat_cls
                 #g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
                 #Optimize
