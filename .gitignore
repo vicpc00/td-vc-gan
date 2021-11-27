@@ -17,6 +17,9 @@ datasets/
 config/*
 !config/default.yaml
 
+#Misc
+test_scripts/mls-pt/speechbrain_model/checkpoint-old/
+
 #Sypeder project
 .spyproject
 

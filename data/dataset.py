@@ -1,8 +1,10 @@
 import os
 import random
+import warnings
 import pickle
 import numpy as np
 import soundfile as sf
+import librosa
 import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
@@ -10,13 +12,13 @@ import resampy
 
 class WaveDataset(Dataset):
 
-    def __init__(self, dataset_file, speaker_file, mode='wav', sample_rate=24000, max_segment_size = None, return_index = False, augment_noise = None, silence_threshold=None):
+    def __init__(self, dataset_file, speaker_file, sample_rate=24000, max_segment_size = None, return_index = False, augment_noise = None, silence_threshold=None):
         
         with open(speaker_file,'rb') as f:
             self.spk_dict = pickle.load(f)
         with open(dataset_file,'r') as f:
             self.dataset = list(map(lambda l: l.strip().split('|'),f.readlines()))
-        self.mode = mode
+        self.mode = os.path.splitext(self.dataset[0][0])[1][1:] #extension of first  file without dot
         self.num_spk = len(self.spk_dict.keys())
 
         self.sr = sample_rate
@@ -31,15 +33,20 @@ class WaveDataset(Dataset):
         for key,val in self.spk_dict.items():
             self.spk_reverse_dict[val] = key
             
+            
 
     def __getitem__(self, index):
         file_path,label = self.dataset[index]
 
-        if self.mode == 'wav':
+        if self.mode == 'wav' or self.mode == 'flac':
             signal,sr = sf.read(file_path)
             if sr != self.sr:
                 #print('Warning: sample rate missmatch')
                 signal = resampy.resample(signal,sr,self.sr)
+        elif self.mode == 'mp3':
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                signal,sr = librosa.load(file_path,sr=self.sr)
         else:
             signal = np.load(file_path).T
         if self.augment:

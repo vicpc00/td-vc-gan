@@ -10,6 +10,7 @@ if __name__ == '__main__':
     parser.add_argument('dataset_folder', type=str, help='Root folder of the dataset')
     parser.add_argument('--save_folder', type=str, default='.', help='Folder in which to save files')
     parser.add_argument('--test_size', type=int, default=3, help='Number of test singnals per class')
+    parser.add_argument('--max_tests_ratio', type=float, default=0.1, help='Max ratio between test and test+train set sizes per class')
     parser.add_argument('--test_random', action="store_true", help='Randomize which signals aer taken as test. If false will take the N first alphabetically of each folder')
     parser.add_argument('--ext', type=str, default='.npy', help='Extension to look for')
 
@@ -29,7 +30,7 @@ if __name__ == '__main__':
         files = glob(os.path.join(opt.dataset_folder,d,'*'+opt.ext),recursive=True)
         print(d,len(files))
         files.sort()
-        if len(files) > opt.test_size:
+        if len(files) > 5*opt.test_size:
             if opt.test_random:
                 random.shuffle(files)
             test_set += ['|'.join([f,d])+'\n' for f in files[:opt.test_size]]
