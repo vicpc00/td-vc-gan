@@ -51,8 +51,7 @@ def speechbrain_init(params_file):
        
     return params
 
-#TODO: compare embeddings with ref
-def speechbrain_speakerrec(test_file, ref_file, speaker_id, sb_params):
+def speechbrain_spkrec_compare(test_file, ref_file, speaker_id, sb_params):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     #rs = torchaudio.transforms.Resample(orig_freq=16000, new_freq=48000)
     
@@ -115,8 +114,30 @@ def speechbrain_speakerrec(test_file, ref_file, speaker_id, sb_params):
 
     return test_class, test_classification[speaker_enc].item(), ref_class, ref_classification[speaker_enc].item(), emb_dist, test_embeddings, ref_embeddings 
         
+def speechbrain_spkrec_single(test_file, speaker_id, sb_params):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    test_signal,sr = torchaudio.load(test_file)
+    test_signal = torchaudio.transforms.Resample(orig_freq=sr, new_freq=48000)(test_signal)
+    test_signal = test_signal.to(device)
     
-    
+    with torch.no_grad():
+        speaker_enc = sb_params["label_encoder"].encode_label(speaker_id)
+        
+        feats = sb_params["compute_features"](test_signal)
+        feats = sb_params["mean_var_norm"](feats, torch.tensor([1.0]))
+        test_embeddings = sb_params["embedding_model"](feats, torch.tensor([1.0]))
+
+        test_classification = sb_params["classifier"](test_embeddings)
+        
+        test_embeddings = sb_params["mean_var_norm_emb"](
+            test_embeddings, torch.ones(test_embeddings.shape[0]).to(test_embeddings.device)
+        )
+        
+    test_classification = F.softmax(test_classification,dim=2).squeeze()
+    test_class = sb_params["label_encoder"].ind2lab[torch.argmax(test_classification).item()]
+        
+    test_embeddings = test_embeddings.squeeze().detach().cpu().numpy()
+    return test_class, test_classification[speaker_enc].item(), test_embeddings
 
 def test_speaker_rec():
     args = parse_args()
@@ -132,32 +153,42 @@ def test_speaker_rec():
     for src_file in tqdm(orig_list):
         filename, src_spk = re.match('(\S+)_(\S+?)-X_orig.wav',os.path.basename(src_file)).groups()
         
-        """
-        if src_spk not in dists.keys():
-            dists[src_spk] = {}
-        """
+        ref_class, ref_tgt_prob, ref_emb = speechbrain_spkrec_single(src_file, src_spk, sb_hparams)
+        results['ref_class'].setdefault(src_spk,[]).append(ref_class)
+        results['ref_tgt_prob'].setdefault(src_spk,[]).append(ref_tgt_prob)
+        results['ref_emb'].setdefault(src_spk,[]).append(ref_emb)
+        
         #print(filename,src_spk)
         conv_list =  glob.glob(os.path.join(args.test_path, f'{filename}_{src_spk}-*_conv.wav'))
         #print(conv_list)
         for conv_file in conv_list:
             #print(f'{filename}_{src_spk}-(\S+?)_conv.wav',conv_file)
             tgt_spk = re.match(f'{filename}_{src_spk}-(\S+?)_conv.wav',os.path.basename(conv_file)).group(1)
-            """
-            if tgt_spk not in dists[src_spk].keys():
-                dists[src_spk][tgt_spk] = []
-            """
-            tgt_file = os.path.join(args.test_path,f'{re.sub(src_spk,tgt_spk,filename)}_{tgt_spk}-X_orig.wav')
+
+            #tgt_file = os.path.join(args.test_path,f'{re.sub(src_spk,tgt_spk,filename)}_{tgt_spk}-X_orig.wav')
             #print(src_file, tgt_file, conv_file)
             
-            test_class, test_tgt_prob, ref_class, ref_tgt_prob, emb_dist, test_emb, ref_emb = speechbrain_speakerrec(conv_file,tgt_file, tgt_spk, sb_hparams)
+            #test_class, test_tgt_prob, ref_class, ref_tgt_prob, emb_dist, test_emb, ref_emb = speechbrain_spkrec_compare(conv_file,tgt_file, tgt_spk, sb_hparams)
+            test_class, test_tgt_prob, test_emb = speechbrain_spkrec_single(conv_file, tgt_spk, sb_hparams)
             
             results['test_class'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(test_class)
             results['test_tgt_prob'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(test_tgt_prob)
-            results['ref_class'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(ref_class)
-            results['ref_tgt_prob'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(ref_tgt_prob)
-            results['emb_dist'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(emb_dist)
+            #results['ref_class'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(ref_class)
+            #results['ref_tgt_prob'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(ref_tgt_prob)
+            #results['emb_dist'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(emb_dist)
             results['test_emb'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(test_emb)
-            results['ref_emb'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(ref_emb)
+            #results['ref_emb'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(ref_emb)
+            
+            
+    spks = results['ref_class'].keys()
+    for tgt_spk in spks:
+        
+        mean_emb = np.mean(results['ref_emb'][tgt_spk],axis=0)
+        
+        for src_spk in spks:
+            results['emb_dist'].setdefault(src_spk,{})[tgt_spk] = [
+                    torch.nn.CosineSimilarity(dim=0)(torch.tensor(mean_emb),torch.tensor(test_emb)).squeeze().item()
+                    for test_emb in results['test_emb'][src_spk][tgt_spk]]
             
     with open(args.save_file,'wb') as f:
         pickle.dump(results,f)

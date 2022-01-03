@@ -197,9 +197,12 @@ def dict_stats_per_pair(result_dict):
 def dict_correct_rate(result_dict, count_self = True):
     result_list = []
     for src_spk in result_dict.keys():
-        for tgt_spk in result_dict[src_spk].keys():
-            if src_spk == tgt_spk and not count_self: continue
-            result_list += [spk==tgt_spk for spk in result_dict[src_spk][tgt_spk]]
+        if type(result_dict[src_spk]) == dict:
+            for tgt_spk in result_dict[src_spk].keys():
+                if src_spk == tgt_spk and not count_self: continue
+                result_list += [spk==tgt_spk for spk in result_dict[src_spk][tgt_spk]]
+        elif type(result_dict[src_spk]) == list:
+            result_list += [spk==src_spk for spk in result_dict[src_spk]]
     
     p = sum(result_list)/len(result_list)
     ci = st.binom.interval(0.95, len(result_list), p)
@@ -242,7 +245,7 @@ def build_result_sumary(result_dict):
       
     table += '''
       <tr>
-        <td style="text-align:center;">Embedding distance</td>
+        <td style="text-align:center;">Embedding cos similarity</td>
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
@@ -295,15 +298,6 @@ def build_result_sumary(result_dict):
         <td style="text-align:center;">{:.3f}</td>
       </tr>\n'''.format(*dict_stats(result_dict['mcd_result_orig'], False))
       
-    table += '''
-      <tr>
-        <td style="text-align:center;">Softmax value of correct speaker</td>
-        <td style="text-align:center;">{:.2e}</td>
-        <td style="text-align:center;">{:.2e}</td>
-        <td style="text-align:center;">{:.2e}</td>
-        <td style="text-align:center;">{:.2e}</td>
-        <td style="text-align:center;">{:.2e}</td>
-      </tr>\n'''.format(*dict_stats(result_dict['ref_tgt_prob'], False))
       
     sumary += html_table_template.format(table)
     
