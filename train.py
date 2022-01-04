@@ -43,6 +43,16 @@ def parse_args():
 def worker_init_fn(worker_id):                                                          
     np.random.seed(np.random.get_state()[1][0] + worker_id)
 
+#format: (start_value,update_delta,update_interval,update_start, num_epoch)
+    
+def gen_schedule(start_value,update_delta,update_interval,update_start, num_epoch):
+    schedule = [start_value]*(update_start+1)
+    end_value = int(start_value + update_delta*(num_epoch-update_start)/update_interval)
+    for v in range(start_value,end_value,update_delta):
+        schedule += [v]*update_interval
+    
+    return schedule
+
 def main():
     initial_seed = 1234
     np.random.seed(initial_seed)
@@ -133,7 +143,15 @@ def main():
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
     iter_count = 0
+    
+    lambda_cls_schedule = (20,-2,10,100, hp.train.num_epoch)#(start_value,update_delta,update_interval,update_start, num_epoch)
+    
+    lambda_cls = gen_schedule(*lambda_cls_schedule)
+    print(lambda_cls)
+    
     for epoch in range(start_epoch, hp.train.num_epoch+1):
+        hp.train.lambda_cls = lambda_cls[epoch]
+        print(f'lambda_cls:{lambda_cls[epoch]}')
         for i, data in enumerate(train_data_loader):
 
             loss = {}
