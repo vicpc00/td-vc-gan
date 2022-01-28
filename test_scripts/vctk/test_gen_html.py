@@ -8,6 +8,8 @@ import pickle
 import numpy as np
 import scipy.stats as st
 
+import matplotlib.pyplot as plt
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_dir', required=True)
@@ -255,16 +257,6 @@ def build_result_sumary(result_dict):
       
     table += '''
       <tr>
-        <td style="text-align:center;">Softmax value of correct speaker</td>
-        <td style="text-align:center;">{:.2e}</td>
-        <td style="text-align:center;">{:.2e}</td>
-        <td style="text-align:center;">{:.2e}</td>
-        <td style="text-align:center;">{:.2e}</td>
-        <td style="text-align:center;">{:.2e}</td>
-      </tr>\n'''.format(*dict_stats(result_dict['test_tgt_prob'], False))
-      
-    table += '''
-      <tr>
         <td style="text-align:center;">Predicted MOS</td>
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
@@ -316,6 +308,21 @@ def build_result_sumary(result_dict):
     
     return sumary
       
+def gen_scatter(result_dict, spks, test_dir):
+    
+    fig, ax = plt.subplots()
+    ax.set_title('Embedding Similarity vs. MOSNet Result')
+    ax.set(xlabel='Embedding Similarity', ylabel='MOSNet Result')
+    ax.set_ylim([1,5])
+    ax.set_xlim([0,1])
+    
+    for src_spk in spks:
+        for tgt_spk in spks:
+            plt.scatter(result_dict['emb_dist'][src_spk][tgt_spk], result_dict['mos_result_conv'][src_spk][tgt_spk]
+                       , c='blue')
+    plt.savefig(os.path.join(test_dir,'embsim_mos_scatter.png'))
+
+
 def load_dicts(test_dir):
     result_files = ['spkrec_results', 'mosnet_results', 'mcd_results']
     result_dict = {}
@@ -385,6 +392,7 @@ def build_html(out_filename, test_dir):
     
     html = html_header + html_body.format(info+tables)
     
+    gen_scatter(result_dict, spks, test_dir)
     
     with open(out_filename, 'w') as f:
         f.writelines(html)

@@ -18,6 +18,8 @@ import speechbrain as sb
 from hyperpyyaml import load_hyperpyyaml
 from speechbrain.utils.distributed import run_on_main
 
+import resemblyzer
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_path', required=True)
@@ -139,6 +141,18 @@ def speechbrain_spkrec_single(test_file, speaker_id, sb_params):
     test_embeddings = test_embeddings.squeeze().detach().cpu().numpy()
     return test_class, test_classification[speaker_enc].item(), test_embeddings
 
+def resemblyzer_spkrec_single(test_file, speaker_id, encoder):
+    test_signal,sr = librosa.load(test_file, sr=16000)
+    
+    test_signal = resemblyzer.preprocess_wav(test_signal, source_sr = sr)
+    test_embeddings = encoder.embed_utterance(test_signal)
+    
+        
+    test_class = 'p000'
+        
+    return test_class, test_embeddings
+
+
 def test_speaker_rec():
     args = parse_args()
     
@@ -148,14 +162,17 @@ def test_speaker_rec():
     orig_list.sort()
     #print(orig_list)
     
+    encoder = resemblyzer.VoiceEncoder()
+    
     results = {'test_class':{}, 'test_tgt_prob':{}, 'ref_class':{}, 'ref_tgt_prob':{}, 'emb_dist':{}, 'test_emb':{}, 'ref_emb':{}}
 
     for src_file in tqdm(orig_list):
         filename, src_spk = re.match('(\S+)_(\S+?)-X_orig.wav',os.path.basename(src_file)).groups()
         
-        ref_class, ref_tgt_prob, ref_emb = speechbrain_spkrec_single(src_file, src_spk, sb_hparams)
+        #ref_class, ref_tgt_prob, ref_emb = speechbrain_spkrec_single(src_file, src_spk, sb_hparams)
+        ref_class, ref_emb = resemblyzer_spkrec_single(src_file, src_spk, encoder)
         results['ref_class'].setdefault(src_spk,[]).append(ref_class)
-        results['ref_tgt_prob'].setdefault(src_spk,[]).append(ref_tgt_prob)
+        #results['ref_tgt_prob'].setdefault(src_spk,[]).append(ref_tgt_prob)
         results['ref_emb'].setdefault(src_spk,[]).append(ref_emb)
         
         #print(filename,src_spk)
@@ -169,10 +186,11 @@ def test_speaker_rec():
             #print(src_file, tgt_file, conv_file)
             
             #test_class, test_tgt_prob, ref_class, ref_tgt_prob, emb_dist, test_emb, ref_emb = speechbrain_spkrec_compare(conv_file,tgt_file, tgt_spk, sb_hparams)
-            test_class, test_tgt_prob, test_emb = speechbrain_spkrec_single(conv_file, tgt_spk, sb_hparams)
+            #test_class, test_tgt_prob, test_emb = speechbrain_spkrec_single(conv_file, tgt_spk, sb_hparams)
+            test_class, test_emb = resemblyzer_spkrec_single(conv_file, tgt_spk, encoder)
             
-            results['test_class'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(test_class)
-            results['test_tgt_prob'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(test_tgt_prob)
+            #results['test_class'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(test_class)
+            #results['test_tgt_prob'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(test_tgt_prob)
             #results['ref_class'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(ref_class)
             #results['ref_tgt_prob'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(ref_tgt_prob)
             #results['emb_dist'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(emb_dist)
@@ -180,15 +198,24 @@ def test_speaker_rec():
             #results['ref_emb'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(ref_emb)
             
             
-    spks = results['ref_class'].keys()
+    spks = list(results['ref_class'].keys())
+    mean_emb = []
     for tgt_spk in spks:
         
-        mean_emb = np.mean(results['ref_emb'][tgt_spk],axis=0)
+        mean_emb.append(np.mean(results['ref_emb'][tgt_spk],axis=0))
         
         for src_spk in spks:
             results['emb_dist'].setdefault(src_spk,{})[tgt_spk] = [
-                    torch.nn.CosineSimilarity(dim=0)(torch.tensor(mean_emb),torch.tensor(test_emb)).squeeze().item()
+                    torch.nn.CosineSimilarity(dim=0)(torch.tensor(mean_emb[-1]),torch.tensor(test_emb)).squeeze().item()
                     for test_emb in results['test_emb'][src_spk][tgt_spk]]
+    for src_spk in spks:
+        results['test_class'].setdefault(src_spk,{})
+        for tgt_spk in spks:
+            dists = np.linalg.norm(np.array(mean_emb)[np.newaxis,:,:] - np.array(results['test_emb'][src_spk][tgt_spk])[:,np.newaxis,:], axis=2)
+            #print(dists.shape)
+            idxs = np.argmin(dists,axis=1)
+            #print(idxs.shape)
+            results['test_class'][src_spk][tgt_spk] = [spks[idx] for idx in idxs]
             
     with open(args.save_file,'wb') as f:
         pickle.dump(results,f)
