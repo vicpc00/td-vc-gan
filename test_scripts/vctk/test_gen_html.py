@@ -70,6 +70,13 @@ dist_template = '''
       <p>{}</p>
 '''
 
+fig_template = '''
+       <figure>
+         <img src="{}" style="scale:100%">
+         <figcaption>{}</figcaption>
+       </figure> 
+'''
+
 def build_tables(phrase_ids, spks, result_dict):
     tables = ''
     for i, phrase_id in enumerate(phrase_ids):
@@ -178,13 +185,15 @@ def dict_stats(result_dict, count_self = True):
             result_list += result_dict[src_spk][tgt_spk]
             
     mean = np.mean(result_list)
-    ci  = st.t.interval(0.95, len(result_list)-1, loc=mean, scale=st.sem(result_list))
+    #ci  = st.t.interval(0.95, len(result_list)-1, loc=mean, scale=st.sem(result_list))
+    ci  = st.norm.interval(0.95, loc=mean, scale=st.sem(result_list))
     ci = (ci[1]-ci[0])/2
+    std = np.std(result_list)
     median = np.median(result_list)
     maxval = max(result_list)
     minval = min(result_list)
     
-    return mean, ci, median, maxval, minval
+    return mean, ci, std, median, maxval, minval
 
 def dict_stats_per_pair(result_dict):
     pair_mean_dist = dict.fromkeys(result_dict.keys())
@@ -229,7 +238,8 @@ def build_result_sumary(result_dict):
       <tr>
         <td style="text-align:center;">Type of measure</td>
         <td style="text-align:center;">Mean</td>
-        <td style="text-align:center;">Confidence<br/>Interval</td>
+        <td style="text-align:center;">Mean<br/>Confidence<br/>Interval</td>
+        <td style="text-align:center;">Standard<br/>Deviation</td>
         <td style="text-align:center;">Median</td>
         <td style="text-align:center;">Max</td>
         <td style="text-align:center;">Min</td>
@@ -238,6 +248,7 @@ def build_result_sumary(result_dict):
     table += '''
       <tr>
         <td style="text-align:center;">Mel cepstral distance</td>
+        <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
@@ -253,11 +264,13 @@ def build_result_sumary(result_dict):
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
       </tr>\n'''.format(*dict_stats(result_dict['emb_dist'], False))
       
     table += '''
       <tr>
         <td style="text-align:center;">Predicted MOS</td>
+        <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
@@ -274,7 +287,8 @@ def build_result_sumary(result_dict):
       <tr>
         <td style="text-align:center;">Type of measure</td>
         <td style="text-align:center;">Mean</td>
-        <td style="text-align:center;">Confidence<br/>Interval</td>
+        <td style="text-align:center;">Mean<br/>Confidence<br/>Interval</td>
+        <td style="text-align:center;">Standard<br/>Deviation</td>
         <td style="text-align:center;">Median</td>
         <td style="text-align:center;">Max</td>
         <td style="text-align:center;">Min</td>
@@ -283,6 +297,7 @@ def build_result_sumary(result_dict):
     table += '''
       <tr>
         <td style="text-align:center;">Mel cepstral distance (source speaker)</td>
+        <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
@@ -307,6 +322,21 @@ def build_result_sumary(result_dict):
     
     
     return sumary
+
+def build_plots(result_dict, spks, test_dir):
+    
+    gen_scatter(result_dict, spks, test_dir)
+    gen_boxplots(result_dict, spks, test_dir)
+    gen_hists(result_dict, spks, test_dir)
+    
+    plots = '<h2>Objective measures plots</h2>\n'
+    plots += '<h4>Histograms of measures</h4>\n'
+    plots += fig_template.format('histograms.png', '')
+    plots += '<h4>Boxplot of measures</h4>\n'
+    plots += fig_template.format('boxplots.png', '')   
+    plots += '<h4>Predicted MOS vs Embedding cos similarity scatter plot</h4>\n'
+    plots += fig_template.format('embsim_mos_scatter.png', '')
+    return plots
       
 def gen_scatter(result_dict, spks, test_dir):
     
@@ -322,6 +352,52 @@ def gen_scatter(result_dict, spks, test_dir):
                        , c='blue')
     plt.savefig(os.path.join(test_dir,'embsim_mos_scatter.png'))
 
+def gen_boxplots(result_dict, spks, test_dir):
+    count_self = False
+    flattened = {}
+    
+    for res in ['mcd_result_conv', 'emb_dist', 'mos_result_conv']:
+        flattened[res] = []
+        for src_spk in spks:
+            for tgt_spk in spks:
+                if src_spk == tgt_spk and not count_self: continue
+                flattened[res] += result_dict[res][src_spk][tgt_spk]
+    
+    fig, axs = plt.subplots(1,3)
+    fig.tight_layout()
+    axs[0].set_title('Mel cepstral distance')
+    axs[0].set_ylim(0.5,4)
+    axs[0].boxplot(flattened['mcd_result_conv'], labels=[''])
+    axs[1].set_title('Embedding cos similarity')
+    axs[1].set_ylim(0,1)
+    axs[1].boxplot(flattened['emb_dist'], labels=[''])
+    axs[2].set_title('Predicted MOS')
+    axs[2].set_ylim(1,5)
+    axs[2].boxplot(flattened['mos_result_conv'], labels=[''])
+    
+    plt.savefig(os.path.join(test_dir,'boxplots.png'))
+    
+def gen_hists(result_dict, spks, test_dir):
+    count_self = False
+    flattened = {}
+    
+    for res in ['mcd_result_conv', 'emb_dist', 'mos_result_conv']:
+        flattened[res] = []
+        for src_spk in spks:
+            for tgt_spk in spks:
+                if src_spk == tgt_spk and not count_self: continue
+                flattened[res] += result_dict[res][src_spk][tgt_spk]
+    
+    fig, axs = plt.subplots(1,3, figsize=(12.8,4.8))
+    fig.tight_layout()
+    axs[0].set_title('Mel cepstral distance')
+    axs[0].hist(flattened['mcd_result_conv'], bins=list(np.linspace(0,4,101)), density=True)
+    axs[1].set_title('Embedding cos similarity')
+    axs[1].hist(flattened['emb_dist'], bins=list(np.linspace(0,1,101)), density=True)
+    axs[2].set_title('Predicted MOS')
+    axs[2].hist(flattened['mos_result_conv'], bins=list(np.linspace(1,5,101)), density=True)
+    
+    plt.savefig(os.path.join(test_dir,'histograms.png'))
 
 def load_dicts(test_dir):
     result_files = ['spkrec_results', 'mosnet_results', 'mcd_results']
@@ -390,10 +466,10 @@ def build_html(out_filename, test_dir):
     
     tables = build_tables(phrase_ids, spks, result_dict)
     
-    html = html_header + html_body.format(info+tables)
+    plots = build_plots(result_dict, spks, test_dir)
     
-    gen_scatter(result_dict, spks, test_dir)
-    
+    html = html_header + html_body.format(info+plots+tables)
+        
     with open(out_filename, 'w') as f:
         f.writelines(html)
     

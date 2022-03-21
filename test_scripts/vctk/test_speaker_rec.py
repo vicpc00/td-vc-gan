@@ -156,7 +156,7 @@ def resemblyzer_spkrec_single(test_file, speaker_id, encoder):
 def test_speaker_rec():
     args = parse_args()
     
-    sb_hparams = speechbrain_init(args.speechbrain_hparam)
+    #sb_hparams = speechbrain_init(args.speechbrain_hparam)
 
     orig_list = glob.glob(os.path.join(args.test_path, '*X_orig.wav'))
     orig_list.sort()
