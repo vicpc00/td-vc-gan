@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import subprocess
 import pickle
+import random
 
 import soundfile as sf
 
@@ -18,6 +19,10 @@ from model.discriminator import MultiscaleDiscriminator
 import data.dataset as dataset
 
 from util.hparams import HParam
+
+import resemblyzer
+
+import tqdm
 
 def label2onehot(labels, n_classes):
     #labels: (batch_size,)
@@ -52,6 +57,7 @@ def gen_schedule(start_value,update_delta,update_interval,update_start, num_epoc
         schedule += [v]*update_interval
     
     return schedule
+    
 
 def main():
     initial_seed = 1234
@@ -144,15 +150,30 @@ def main():
     #Train Loop
     iter_count = 0
     
-    lambda_cls_schedule = (20,-2,10,100, hp.train.num_epoch)#(start_value,update_delta,update_interval,update_start, num_epoch)
+    lambda_cls_schedule = (20,-2,30,150, hp.train.num_epoch)#(start_value,update_delta,update_interval,update_start, num_epoch)
     
     lambda_cls = gen_schedule(*lambda_cls_schedule)
     print(lambda_cls)
+    
+    #Initializing resemblyzer speaker embedding
+    encoder = resemblyzer.VoiceEncoder()
+    
+    ref_embs = {}
+    ref_means = {}
+    
+    for data in tqdm.tqdm(val_data_loader):
+        signal_real, label_src = data
+        signal_real = resemblyzer.preprocess_wav(signal_real.squeeze().numpy(), source_sr = hp.model.sample_rate)
+        emb = encoder.embed_utterance(signal_real)
+        ref_embs.setdefault(label_src.item(),[]).append(emb)
+    for spk in ref_embs.keys():
+        ref_means[spk] = torch.tensor(np.mean(ref_embs[spk]))
     
     for epoch in range(start_epoch, hp.train.num_epoch+1):
         hp.train.lambda_cls = lambda_cls[epoch]
         print(f'lambda_cls:{lambda_cls[epoch]}')
         for i, data in enumerate(train_data_loader):
+            
 
             loss = {}
 
@@ -323,6 +344,7 @@ def main():
                     print(', {}: {:.4f}'.format(label, value),end='')
                 print()
             iter_count += 1
+        #Validation
         if epoch % hp.log.val_interval == 0:
             print('Validation loop')
             G.eval()
@@ -337,6 +359,7 @@ def main():
                     else:
                         #Random target label
                         label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                        label_tgt[0] = random.choice(list(ref_means.keys()))
                     c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
         
                     #Send everything to device
@@ -374,12 +397,18 @@ def main():
                     d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
                     g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake
                     
+                    signal_fake = resemblyzer.preprocess_wav(signal_fake.cpu().squeeze().numpy(), source_sr = hp.model.sample_rate)
+                    signal_fake_emb = torch.tensor(encoder.embed_utterance(signal_fake))
+                    
+                    emb_dist = F.cosine_similarity(signal_fake_emb, ref_means[label_tgt.item()],dim=0)
+                    
                     loss['val_loss_adv_real'] = loss.setdefault('val_loss_adv_real',0) + d_loss_adv_real.item()
                     loss['val_loss_adv_fake'] = loss.setdefault('val_loss_adv_fake',0) + d_loss_adv_fake.item()
                     loss['val_loss_cls_real'] = loss.setdefault('val_loss_cls_real',0) + d_loss_cls_real.item()
                     loss['val_loss_cls_fake'] = loss.setdefault('val_loss_cls_fake',0) + d_loss_cls_fake.item()
                     loss['val_D_loss'] = loss.setdefault('val_D_loss',0) + d_loss.item()
                     loss['val_G_loss'] = loss.setdefault('val_G_loss',0) + g_loss.item()
+                    loss['val_emb_dist'] = loss.setdefault('val_emb_dist',0) + emb_dist.item()
                     
             print('Val Epoch {}/{}, Itt {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
             for label, value in loss.items():

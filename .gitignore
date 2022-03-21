@@ -19,6 +19,7 @@ config/*
 
 #Misc
 test_scripts/mls-pt/speechbrain_model/checkpoint-old/
+*.png
 
 #Sypeder project
 .spyproject
