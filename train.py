@@ -134,7 +134,12 @@ def main():
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
     optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta) 
-    optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta) 
+    optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
+    
+    
+    if hp.train.freeze_subnets is not None and 'encoder' in hp.train.freeze_subnets:
+        for param in G.encoder.parameters():
+            param.requires_grad = False
 
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
@@ -219,16 +224,17 @@ def main():
             loss['D_loss_grad_norm'] = D_grad_norm
             
             #Latent classifier step
-            sig_cont_emb = G.content_embedding
-            out_lat_cls = C(sig_cont_emb)
-            c_loss = F.cross_entropy(out_lat_cls,label_src)
+            if hp.train.lambda_latcls != 0:
+                sig_cont_emb = G.content_embedding
+                out_lat_cls = C(sig_cont_emb)
+                c_loss = F.cross_entropy(out_lat_cls,label_src)
+                
+                optimizer_C.zero_grad()
+                c_loss.backward()
+                optimizer_C.step()
             
-            optimizer_C.zero_grad()
-            c_loss.backward()
-            optimizer_C.step()
-            
-            loss['C_loss'] = c_loss.item()
-            #loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
+                loss['C_loss'] = c_loss.item()
+                loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
             
             del out_adv_real_list, out_cls_real_list
             del out_adv_fake_list, out_cls_fake_list, features_fake_list
@@ -284,9 +290,12 @@ def main():
                     g_loss_idt = 0
                     
                 #Latent classification loss
-                sig_cont_emb = G.content_embedding
-                out_lat_cls = C(sig_cont_emb)
-                g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
+                if hp.train.lambda_latcls != 0:
+                    sig_cont_emb = G.content_embedding
+                    out_lat_cls = C(sig_cont_emb)
+                    g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
+                else:
+                    g_loss_lat_cls = 0
                 
                 #Full loss
                 g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt + hp.train.lambda_latcls*g_loss_lat_cls
@@ -296,9 +305,9 @@ def main():
                 optimizer_D.zero_grad()
                 optimizer_G.zero_grad()
                 g_loss.backward()
-                
+
+                """                
                 G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
-                """
                 if G_grad_norm != G_grad_norm:
                     dump = {}
                     dump['signal_fake'] = signal_fake
@@ -323,8 +332,8 @@ def main():
                 loss['G_loss_lat_cls'] = g_loss_lat_cls if type(g_loss_lat_cls) == int else g_loss_lat_cls.item()
                 
                 #G_grad_norm = sum([param.grad.norm().item() for param in G.parameters()])
-                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
-                loss['G_loss_grad_norm'] = G_grad_norm
+#                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
+#                loss['G_loss_grad_norm'] = G_grad_norm
                 
                 del out_adv_fake_list, out_cls_fake_list
                 del out_adv_fake, out_cls_fake
