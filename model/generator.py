@@ -212,10 +212,12 @@ class Generator(nn.Module):
     def __init__(self, decoder_ratios, decoder_channels, 
                  num_bottleneck_layers, num_classes, conditional_dim,
                  norm_layer = 'instance_norm', weight_norm = None, #either None, str or (str,str,str)
-                 bot_cond = 'target', enc_cond = None, dec_cond = None):
+                 bot_cond = 'target', enc_cond = None, dec_cond = None, 
+                 output_content_emb = False):
         super().__init__()
         num_res_blocks = 3
         
+        self.output_content_emb = output_content_emb
         
         if type(norm_layer) is not tuple:
             nl = util.get_norm_layer(norm_layer)
@@ -244,6 +246,7 @@ class Generator(nn.Module):
         dec_cond_dim = 0 if dec_cond == None else conditional_dim
         
         self.both_cond = bot_cond == 'both'
+        
         
         self.cin = bot_norm_layer is ConditionalInstanceNorm
         
@@ -285,6 +288,8 @@ class Generator(nn.Module):
         c_src = self.embedding(c_src) if c_src != None else None
         
         x = self.encoder(x,c_src)
+        if self.output_content_emb:
+            self.content_embedding=x
         
         if self.both_cond:
             c = torch.cat([c_src,c_tgt],dim=1)
@@ -293,5 +298,8 @@ class Generator(nn.Module):
             x = self._bottleneck(x,c_tgt)
         
         x = self.decoder(x,c_tgt)
+        
+#        if self.output_content_emb:
+#            return x, content_emb
         
         return x
