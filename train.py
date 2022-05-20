@@ -1,4 +1,5 @@
 import os
+import sys
 import shutil
 import argparse
 from pathlib import Path
@@ -67,6 +68,8 @@ def main():
     message = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
     with open(save_path / 'githash','w') as f:
         f.write(message.strip().decode('utf-8'))
+    with open(save_path / 'argv','w') as f:
+        f.write(' '.join(sys.argv))
     logger = tensorboard.SummaryWriter(str(save_path / 'logs'))
 
 
@@ -241,6 +244,7 @@ def main():
             del out_adv_fake, out_adv_real, d_gan_loss
             del out_cls_real, out_cls_fake, d_loss_cls
             del d_loss
+            del out_lat_cls, c_loss
             
 
             #Generator training
@@ -339,6 +343,8 @@ def main():
                 del out_adv_fake, out_cls_fake
                 del g_loss_adv_fake, g_loss_cls_fake
                 #del features_rec_list, features_rec, features_real, feat_rec, feat_real, g_loss_rec
+                if hp.train.lambda_idt > 0:
+                    del g_loss_idt, features_idt_list
                 del g_loss
             
             #Print Losses
@@ -422,7 +428,20 @@ def main():
             print()
             G.train()
             D.train()
-                    
+            
+        #Save Model
+        if epoch % hp.log.save_interval == 0:
+            print('Saving checkpoint')
+            torch.save(G.state_dict(), save_path / 'step{}-G.pt'.format(epoch))
+            torch.save(D.state_dict(), save_path / 'step{}-D.pt'.format(epoch))
+            torch.save(C.state_dict(), save_path / 'step{}-C.pt'.format(epoch))
+            torch.save(G.state_dict(), save_path / 'latest-G.pt')
+            torch.save(D.state_dict(), save_path / 'latest-D.pt')
+            torch.save(C.state_dict(), save_path / 'latest-C.pt')
+            with open(save_path / 'latest_epoch','w') as f:
+                f.write(str(epoch))
+            print('Saved')
+            
         #Gen exemples
         if epoch % hp.log.gen_interval == 0:
             print('Saving signals')
@@ -452,20 +471,6 @@ def main():
                 sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_orig.wav'.format(epoch,i,label_src,label_tgt),signal_real,hp.model.sample_rate)
                 sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_rec.wav'.format(epoch,i,label_src,label_tgt),signal_rec,hp.model.sample_rate)
 
-
-        #Save Model
-        if epoch % hp.log.save_interval == 0:
-            print('Saving checkpoint')
-            torch.save(G.state_dict(), save_path / 'step{}-G.pt'.format(epoch))
-            torch.save(D.state_dict(), save_path / 'step{}-D.pt'.format(epoch))
-            torch.save(C.state_dict(), save_path / 'step{}-C.pt'.format(epoch))
-            torch.save(G.state_dict(), save_path / 'latest-G.pt')
-            torch.save(D.state_dict(), save_path / 'latest-D.pt')
-            torch.save(C.state_dict(), save_path / 'latest-C.pt')
-            with open(save_path / 'latest_epoch','w') as f:
-                f.write(str(epoch))
-            print('Saved')
-                
         #Update random seed
         np.random.seed(initial_seed+epoch)
 
