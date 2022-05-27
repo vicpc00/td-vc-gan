@@ -18,6 +18,7 @@ from model.generator import Generator
 from model.discriminator import MultiscaleDiscriminator
 from model.latent_classifier import LatentClassifier
 import data.dataset as dataset
+from util import mel_spectrogram
 
 from util.hparams import HParam
 
@@ -244,7 +245,8 @@ def main():
             del out_adv_fake, out_adv_real, d_gan_loss
             del out_cls_real, out_cls_fake, d_loss_cls
             del d_loss
-            del out_lat_cls, c_loss
+            if hp.train.lambda_latcls != 0:
+                del out_lat_cls, c_loss
             
 
             #Generator training
@@ -264,32 +266,50 @@ def main():
                 if not hp.train.no_conv:
                     #Reconstructed signal losses
                     signal_rec = G(signal_fake, c_src, c_tgt)
-                    if hp.train.rec_loss == 'feat':
+                    
+                    g_loss_rec = 0
+                    if hp.train.lambda_feat > 0:
                         _, _, features_rec_list = D(signal_rec,c_src,c_tgt)
-                        g_loss_rec = 0
+                        g_loss_rec_feat = 0
                         for features_rec, features_real in zip(features_rec_list, features_real_list):
                             for feat_rec, feat_real in zip(features_rec, features_real):
-                                g_loss_rec += torch.mean(torch.abs(feat_rec - feat_real.detach()))#L1 Loss
-                    else:
-                        g_loss_rec = torch.mean(torch.abs(signal_real - signal_rec))#L1 Loss
+                                g_loss_rec_feat += torch.mean(torch.abs(feat_rec - feat_real.detach()))#L1 Loss
+                        g_loss_rec += hp.train.lambda_feat*g_loss_rec_feat
+                    if hp.train.lambda_spec > 0:
+                        spec_real = mel_spectrogram(signal_real, 1024, 80, hp.model.sample_rate, 256, 1024)
+                        spec_rec  = mel_spectrogram(signal_rec , 1024, 80, hp.model.sample_rate, 256, 1024)
+                        g_loss_rec_spec = torch.mean(torch.abs(spec_real - spec_rec))
+                        g_loss_rec += hp.train.lambda_spec*g_loss_rec_spec
+                    if hp.train.lambda_wave > 0:
+                        g_loss_rec_wave = torch.mean(torch.abs(signal_real - signal_rec))#L1 Loss
+                        g_loss_rec += hp.train.lambda_wave*g_loss_rec_wave
 
                 else:
                     g_loss_rec = 0
 
-                    #Identity loss
+                #Identity loss
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
                         signal_idt = G(signal_real, c_src, c_src)
                     else:
                         signal_idt = signal_fake
-                    if hp.train.rec_loss == 'feat':
+                    
+                    g_loss_idt = 0
+                    if hp.train.lambda_feat > 0:
                         _, _, features_idt_list = D(signal_idt,c_src,c_src)
-                        g_loss_idt = 0
+                        g_loss_idt_feat = 0
                         for features_idt, features_real in zip(features_idt_list, features_real_list):
                             for feat_idt, feat_real in zip(features_idt, features_real):
-                                g_loss_idt += torch.mean(torch.abs(feat_idt - feat_real.detach()))#L1 Loss
-                    else:
-                        g_loss_idt = torch.mean(torch.abs(signal_real - signal_idt))#L1 Loss
+                                g_loss_idt_feat += torch.mean(torch.abs(feat_idt - feat_real.detach()))#L1 Loss
+                        g_loss_idt += hp.train.lambda_feat*g_loss_idt_feat
+                    if hp.train.lambda_spec > 0:
+                        spec_real = mel_spectrogram(signal_real, 1024, 80, hp.model.sample_rate, 256, 1024)
+                        spec_fake = mel_spectrogram(signal_fake, 1024, 80, hp.model.sample_rate, 256, 1024)
+                        g_loss_idt_spec = torch.mean(torch.abs(spec_real - spec_fake))    
+                        g_loss_idt += hp.train.lambda_spec*g_loss_idt_spec
+                    if hp.train.lambda_wave > 0:
+                        g_loss_idt_wave = torch.mean(torch.abs(signal_real - signal_idt))#L1 Loss
+                        g_loss_idt += hp.train.lambda_wave*g_loss_idt_wave                        
                 else:
                     g_loss_idt = 0
                     
