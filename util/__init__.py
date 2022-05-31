@@ -23,15 +23,14 @@ mel_basis = None
 hann_window = None
 def mel_spectrogram(signal, n_fft, num_mels, sample_rate, win_len, hop_len, fmin = 0, fmax = None):
     global mel_basis, hann_window
-    
     if fmax == None:
         fmax = sample_rate/2
     
     if mel_basis == None:
-        mel_basis = librosa.filters.mel(sample_rate,n_fft,fmin,fmax)
+        mel_basis = librosa.filters.mel(sample_rate,n_fft,num_mels,fmin,fmax)
         mel_basis = torch.tensor(mel_basis).to(signal.device)
         hann_window = torch.hann_window(win_len).to(signal.device)
-        
+    #print(mel_basis)
     spec = torch.stft(signal.squeeze(1),n_fft,hop_length=hop_len, win_length=win_len,window=hann_window,
                       center=False, pad_mode='reflect',normalized=False,onesided=True,return_complex=False)
     spec = torch.sqrt(spec.pow(2).sum(-1)+1e-9)

@@ -353,6 +353,12 @@ def main():
                 loss['G_loss_cls_fake'] = g_loss_cls_fake if type(g_loss_cls_fake) == int else g_loss_cls_fake.item()
                 loss['G_loss_rec'] = g_loss_rec if type(g_loss_rec) == int else g_loss_rec.item()
                 loss['G_loss_idt'] = g_loss_idt if type(g_loss_idt) == int else g_loss_idt.item()
+                if hp.train.lambda_feat > 0:
+                    if hp.train.lambda_rec > 0: loss['G_loss_rec_feat'] = g_loss_rec_feat.item()
+                    if hp.train.lambda_idt > 0: loss['G_loss_idt_feat'] = g_loss_idt_feat.item()
+                if hp.train.lambda_spec > 0:
+                    if hp.train.lambda_rec > 0: loss['G_loss_rec_spec'] = g_loss_rec_spec.item()
+                    if hp.train.lambda_idt > 0: loss['G_loss_idt_spec'] = g_loss_idt_spec.item()
                 loss['G_loss_lat_cls'] = g_loss_lat_cls if type(g_loss_lat_cls) == int else g_loss_lat_cls.item()
                 
                 #G_grad_norm = sum([param.grad.norm().item() for param in G.parameters()])
