@@ -15,7 +15,7 @@ import numpy as np
 import torch.utils.tensorboard as tensorboard
 
 from model.generator import Generator
-from model.discriminator import MultiscaleDiscriminator
+from model.discriminator import Discriminator
 from model.latent_classifier import LatentClassifier
 import data.dataset as dataset
 from util import mel_spectrogram
@@ -107,13 +107,12 @@ def main():
                   weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
                   bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder,
                   output_content_emb = latent_classier).to(device)
-    D = MultiscaleDiscriminator(hp.model.discriminator.num_disc,
-                                train_dataset.num_spk,
-                                hp.model.discriminator.num_layers,
-                                hp.model.discriminator.num_channels_base,
-                                hp.model.discriminator.num_channel_mult,
-                                hp.model.discriminator.downsampling_factor,
-                                hp.model.discriminator.conditional_dim).to(device)
+    D = Discriminator(hp.model.discriminator.num_scales,
+                      hp.model.discriminator.periods,
+                      train_dataset.num_spk,
+                      hp.model.discriminator.conditional_dim,
+                      hp.model.discriminator.scale_disc_config,
+                      hp.model.discriminator.period_disc_config).to(device)
     C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0]).to(device)
 
     
@@ -224,8 +223,8 @@ def main():
             loss['D_loss_cls_fake'] = d_loss_cls_fake.item()
             
             #D_grad_norm = sum([param.grad.norm().item() for param in D.parameters()])
-            D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
-            loss['D_loss_grad_norm'] = D_grad_norm
+            #D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
+            #loss['D_loss_grad_norm'] = D_grad_norm
             
             #Latent classifier step
             if hp.train.lambda_latcls != 0:
