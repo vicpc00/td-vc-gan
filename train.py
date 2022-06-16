@@ -78,7 +78,8 @@ def main():
 
     train_dataset = dataset.WaveDataset(data_path / 'train_files', data_path / 'speakers', sample_rate=hp.model.sample_rate, 
                                         max_segment_size = hp.train.max_segment, augment_noise = 1e-9)
-    test_dataset = dataset.WaveDataset(data_path / 'test_files', data_path / 'speakers', sample_rate=hp.model.sample_rate)
+    test_dataset = dataset.WaveDataset(data_path / 'test_files', data_path / 'speakers', sample_rate=hp.model.sample_rate,
+                                        max_segment_size = hp.test.max_segment)
 
     train_data_loader = torch.utils.data.DataLoader(train_dataset,
                                    batch_size=hp.train.batch_size,
