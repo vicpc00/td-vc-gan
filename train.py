@@ -245,7 +245,8 @@ def main():
             del out_adv_fake, out_adv_real, d_gan_loss
             del out_cls_real, out_cls_fake, d_loss_cls
             del d_loss
-            del out_lat_cls, c_loss
+            if hp.train.lambda_latcls != 0:
+                del out_lat_cls, c_loss
             
 
             #Generator training
@@ -262,7 +263,7 @@ def main():
                     #g_loss_cls_fake += F.cross_entropy(out_cls_fake, label_tgt)
                     g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
                     
-                if not hp.train.no_conv:
+                if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
                     signal_rec = G(signal_fake, c_src, c_tgt)
                     if hp.train.rec_loss == 'feat':
@@ -343,7 +344,8 @@ def main():
                 del out_adv_fake_list, out_cls_fake_list
                 del out_adv_fake, out_cls_fake
                 del g_loss_adv_fake, g_loss_cls_fake
-                #del features_rec_list, features_rec, features_real, feat_rec, feat_real, g_loss_rec
+                if not hp.train.no_conv and hp.train.lambda_rec > 0:
+                    del features_rec_list, features_rec, features_real, feat_rec, feat_real, g_loss_rec
                 if hp.train.lambda_idt > 0:
                     del g_loss_idt, features_idt_list
                 del g_loss
