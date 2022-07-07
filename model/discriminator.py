@@ -35,13 +35,14 @@ class Discriminator(nn.Module):
         self.output_adversarial = normalization(nn.Conv1d(nf,1, kernel_size=3, stride=1, padding=1, bias=False))
         #self.output_classification = normalization(nn.Conv1d(nf,num_classes, kernel_size=3, stride=1, padding=1, bias=False))
         self.output_classification = normalization(nn.Conv1d(nf,conditional_dim, kernel_size=3, stride=1, padding=1, bias=False))
+        self.conditional = conditional
         if conditional=='both':
             self.embedding = nn.Linear(2*num_classes, conditional_dim)
         else:
             self.embedding = nn.Linear(num_classes, conditional_dim)
         
     def forward(self,x,c_tgt, c_src=None):
-        if c_src != None:
+        if self.conditional=='both':
             c = self.embedding(torch.cat((c_tgt, c_src),dim=1))
         else:
             c = self.embedding(c_tgt)
@@ -61,12 +62,12 @@ class Discriminator(nn.Module):
         return out_adv, out_cls, features
     
 class MultiscaleDiscriminator(nn.Module):
-    def __init__(self, num_disc, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4, conditional_dim=32):
+    def __init__(self, num_disc, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4, conditional_dim=32, conditional='both'):
         super().__init__()
         
         self.discriminators = nn.ModuleList()
         for i in range(num_disc):
-            self.discriminators += [Discriminator(num_classes, num_layers, num_channels_base, num_channel_mult, downsampling_factor, conditional_dim)]
+            self.discriminators += [Discriminator(num_classes, num_layers, num_channels_base, num_channel_mult, downsampling_factor, conditional_dim, conditional)]
         
         self.pooling = nn.AvgPool1d(kernel_size=4, stride=2, padding=1, count_include_pad=False)
         

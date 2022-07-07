@@ -113,8 +113,10 @@ def main():
                                 hp.model.discriminator.num_channels_base,
                                 hp.model.discriminator.num_channel_mult,
                                 hp.model.discriminator.downsampling_factor,
-                                hp.model.discriminator.conditional_dim).to(device)
-    C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0]).to(device)
+                                hp.model.discriminator.conditional_dim,
+                                hp.model.discriminator.conditional_spks).to(device)
+    if hp.train.lambda_latcls != 0:
+        C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0]).to(device)
 
     
     if load_path != None:
@@ -132,13 +134,15 @@ def main():
         print('Loading from {}'.format(load_path / '{}-G.pt'.format(load_file_base)))
         G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
         D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
-        C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        if hp.train.lambda_latcls != 0:   
+            C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
     else:
         start_epoch = 0
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
-    optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta) 
-    optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
+    optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
+    if hp.train.lambda_latcls != 0:
+        optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
     
     
     if hp.train.freeze_subnets is not None and 'encoder' in hp.train.freeze_subnets:
@@ -150,6 +154,7 @@ def main():
     iter_count = 0
     for epoch in range(start_epoch, hp.train.num_epoch+1):
         for i, data in enumerate(train_data_loader):
+            break
 
             loss = {}
 
@@ -407,10 +412,14 @@ def main():
                         g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
                     d_loss_cls = d_loss_cls_real+d_loss_cls_fake
                     
-                    sig_cont_emb = G.content_embedding
-                    out_lat_cls = C(sig_cont_emb)
-                    g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
-                    c_acc = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)
+                    if 'C' in locals():
+                        sig_cont_emb = G.content_embedding
+                        out_lat_cls = C(sig_cont_emb)
+                        g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
+                        c_acc = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)
+                    else:
+                        g_loss_lat_cls = torch.tensor([0])
+                        c_acc = torch.tensor([0])
                     
                     d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
                     g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake
@@ -437,10 +446,11 @@ def main():
             print('Saving checkpoint')
             torch.save(G.state_dict(), save_path / 'step{}-G.pt'.format(epoch))
             torch.save(D.state_dict(), save_path / 'step{}-D.pt'.format(epoch))
-            torch.save(C.state_dict(), save_path / 'step{}-C.pt'.format(epoch))
             torch.save(G.state_dict(), save_path / 'latest-G.pt')
             torch.save(D.state_dict(), save_path / 'latest-D.pt')
-            torch.save(C.state_dict(), save_path / 'latest-C.pt')
+            if 'C' in locals():
+                torch.save(C.state_dict(), save_path / 'step{}-C.pt'.format(epoch))
+                torch.save(C.state_dict(), save_path / 'latest-C.pt')
             with open(save_path / 'latest_epoch','w') as f:
                 f.write(str(epoch))
             print('Saved')
