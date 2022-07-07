@@ -154,7 +154,6 @@ def main():
     iter_count = 0
     for epoch in range(start_epoch, hp.train.num_epoch+1):
         for i, data in enumerate(train_data_loader):
-            break
 
             loss = {}
 
@@ -259,6 +258,7 @@ def main():
 
                 #Fake signal losses
                 signal_fake = G(signal_real,c_tgt,c_src)
+                sig_real_cont_emb = G.content_embedding.clone()
                 out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt,c_src)
                 #if hp.train.gan_loss == 'lsgan':
                 g_loss_adv_fake = 0
@@ -283,6 +283,13 @@ def main():
                 else:
                     g_loss_rec = 0
 
+                #Content embedding loss
+                if hp.train.lambda_cont_emb > 0:
+                    sig_fake_cont_emb = G.encoder(signal_fake)
+                    g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
+                else:
+                    g_loss_cont_emb = 0
+
                     #Identity loss
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
@@ -302,14 +309,18 @@ def main():
                     
                 #Latent classification loss
                 if hp.train.lambda_latcls != 0:
-                    sig_cont_emb = G.content_embedding
-                    out_lat_cls = C(sig_cont_emb)
+                    out_lat_cls = C(sig_real_cont_emb)
                     g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
                 else:
                     g_loss_lat_cls = 0
                 
                 #Full loss
-                g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_idt*g_loss_idt + hp.train.lambda_latcls*g_loss_lat_cls
+                g_loss = g_loss_adv_fake + \
+                         hp.train.lambda_cls*g_loss_cls_fake + \
+                         hp.train.lambda_rec*g_loss_rec + \
+                         hp.train.lambda_idt*g_loss_idt + \
+                         hp.train.lambda_latcls*g_loss_lat_cls + \
+                         hp.train.lambda_cont_emb*g_loss_cont_emb
                 #g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
                 #Optimize
@@ -341,6 +352,7 @@ def main():
                 loss['G_loss_rec'] = g_loss_rec if type(g_loss_rec) == int else g_loss_rec.item()
                 loss['G_loss_idt'] = g_loss_idt if type(g_loss_idt) == int else g_loss_idt.item()
                 loss['G_loss_lat_cls'] = g_loss_lat_cls if type(g_loss_lat_cls) == int else g_loss_lat_cls.item()
+                loss['G_loss_cont_emb'] = g_loss_cont_emb if type(g_loss_cont_emb) == int else g_loss_cont_emb.item()
                 
                 #G_grad_norm = sum([param.grad.norm().item() for param in G.parameters()])
 #                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
