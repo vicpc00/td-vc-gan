@@ -115,7 +115,7 @@ def main():
                                 hp.model.discriminator.downsampling_factor,
                                 hp.model.discriminator.conditional_dim,
                                 hp.model.discriminator.conditional_spks).to(device)
-    if hp.train.lambda_latcls != 0:
+    if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
         C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0]).to(device)
 
     
@@ -134,14 +134,14 @@ def main():
         print('Loading from {}'.format(load_path / '{}-G.pt'.format(load_file_base)))
         G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
         D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
-        if hp.train.lambda_latcls != 0:   
+        if 'C' in locals() and os.path.exists(load_path / '{}-C.pt'.format(load_file_base)):
             C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
     else:
         start_epoch = 0
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
     optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
-    if hp.train.lambda_latcls != 0:
+    if 'C' in locals():
         optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
     
     
@@ -232,7 +232,7 @@ def main():
             loss['D_loss_grad_norm'] = D_grad_norm
             
             #Latent classifier step
-            if hp.train.lambda_latcls != 0:
+            if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
                 sig_cont_emb = G.content_embedding
                 out_lat_cls = C(sig_cont_emb)
                 c_loss = F.cross_entropy(out_lat_cls,label_src)
