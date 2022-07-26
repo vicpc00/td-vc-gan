@@ -255,6 +255,28 @@ def build_result_sumary(result_dict):
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
       </tr>\n'''.format(*dict_stats(result_dict['mcd_result_conv'], False))
+
+    table += '''
+      <tr>
+        <td style="text-align:center;">Diff of log mean F0</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['diff_f0_mean'], False))
+      
+    table += '''
+      <tr>
+        <td style="text-align:center;">Diff of log var F0</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['diff_f0_var'], False))
       
     table += '''
       <tr>
@@ -311,13 +333,15 @@ def build_result_sumary(result_dict):
     
     sumary += '<h2>Objective measures per transformation pair</h3>\n'
     
-    sumary += '<h3>Speaker recognition correct rate</h2>\n'
+    sumary += '<h3>Speaker recognition correct rate</h3>\n'
     sumary += build_sumary_table(dict_correct_rate_per_pair(result_dict['test_class']))
-    sumary += '<h3>Mel cepstral distance</h2>\n'
+    sumary += '<h3>Mel cepstral distance</h3>\n'
     sumary += build_sumary_table(dict_stats_per_pair(result_dict['mcd_result_conv']))
-    sumary += '<h3>Embedding similarity</h2>\n'
+    sumary += '<h3>Diff log F0</h3>\n'
+    sumary += build_sumary_table(dict_stats_per_pair(result_dict['diff_f0_mean']))
+    sumary += '<h3>Embedding similarity</h3>\n'
     sumary += build_sumary_table(dict_stats_per_pair(result_dict['emb_dist']))
-    sumary += '<h3>Predicted MOS</h2>\n'
+    sumary += '<h3>Predicted MOS</h3>\n'
     sumary += build_sumary_table(dict_stats_per_pair(result_dict['mos_result_conv']))
     
     

@@ -48,7 +48,7 @@ def mfcc_dist(test_file, ref_file, sr=16000):
     #print(ref_mceps.keys())
     
     if test_file in ref_mceps.keys():
-        test_mcep = ref_mceps[test_file]
+        test_mcep, test_f0 = ref_mceps[test_file]
     else:
         test_signal,sr = librosa.load(test_file, sr=sr)
         
@@ -56,20 +56,23 @@ def mfcc_dist(test_file, ref_file, sr=16000):
         test_mcep = test_mcep[test_f0 > 0] #Remove silence
     
     if ref_file in ref_mceps.keys():
-        ref_mcep = ref_mceps[ref_file]
+        ref_mcep, ref_f0 = ref_mceps[ref_file]
     else:
         ref_signal,sr = librosa.load(ref_file, sr=sr)
         
         ref_mcep, ref_f0 = world_analyze(ref_signal, sr)
         ref_mcep = ref_mcep[ref_f0 > 0] #Remove silence
         
-        ref_mceps[ref_file] = ref_mcep
+        ref_mceps[ref_file] = (ref_mcep, ref_f0)
 
     (dist, path) = fastdtw(test_mcep, ref_mcep, dist=2)
+    diff_f0_mean = np.log(np.mean(test_f0[test_f0 > 0])) - np.log(np.mean(ref_f0[ref_f0 > 0]))
+    diff_f0_var = np.log(np.var(test_f0[test_f0 > 0])) - np.log(np.var(ref_f0[ref_f0 > 0]))
+    
     if len(path) == 0:
-        print(test_file,ref_file)
+        print("Error: 0 len path with files:", test_file,ref_file)
         
-    return dist/len(path)
+    return dist/len(path), diff_f0_mean, diff_f0_var
 
 
 def mfcc_dist_old(test_file, ref_file, sr=16000, target_rms=-25):
@@ -108,7 +111,7 @@ def main():
     orig_list.sort()
     #print(orig_list)
     
-    results={'mcd_result_conv':{}, 'mcd_result_orig':{}}
+    results={'mcd_result_conv':{}, 'mcd_result_orig':{}, 'diff_f0_mean':{}, 'diff_f0_var':{}}
     
     
 
@@ -125,7 +128,10 @@ def main():
             tgt_file = os.path.join(args.test_path,f'{re.sub(src_spk,tgt_spk,filename)}_{tgt_spk}-X_orig.wav')
             #print(src_file, tgt_file, conv_file)
             
-            results['mcd_result_conv'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(mfcc_dist(conv_file,tgt_file))
+            mcd_result, diff_f0_mean, diff_f0_var = mfcc_dist(conv_file,tgt_file)
+            results['mcd_result_conv'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(mcd_result)
+            results['diff_f0_mean'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(diff_f0_mean)
+            results['diff_f0_var'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(diff_f0_var)
 
     for src_file in tqdm(orig_list):
         filename_src, src_spk = re.match('(\S+)_(\S+?)-X_orig.wav',os.path.basename(src_file)).groups()
@@ -136,7 +142,8 @@ def main():
 
             if filename_src.split('_')[1] != filename_tgt.split('_')[1]:
                 continue
-            results['mcd_result_orig'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(mfcc_dist(src_file,tgt_file))
+            mcd_result, _, _ = mfcc_dist(src_file,tgt_file)
+            results['mcd_result_orig'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(mcd_result)
     
     with open(args.save_file,'wb') as f:
         pickle.dump(results,f)
