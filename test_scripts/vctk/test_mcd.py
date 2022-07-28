@@ -66,7 +66,7 @@ def mfcc_dist(test_file, ref_file, sr=16000):
         ref_mceps[ref_file] = (ref_mcep, ref_f0)
 
     (dist, path) = fastdtw(test_mcep, ref_mcep, dist=2)
-    diff_f0_mean = np.log(np.mean(test_f0[test_f0 > 0])) - np.log(np.mean(ref_f0[ref_f0 > 0]))
+    diff_f0_mean = np.mean(np.log(test_f0[test_f0 > 0])) - np.mean(np.log(ref_f0[ref_f0 > 0]))
     diff_f0_var = np.log(np.var(test_f0[test_f0 > 0])) - np.log(np.var(ref_f0[ref_f0 > 0]))
     
     if len(path) == 0:

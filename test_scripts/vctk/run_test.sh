@@ -17,7 +17,7 @@ mosnet_dir=../MOSNet
 #cp $model_dir/githash $out_dir
 #echo $epoch > $out_dir/epoch
 
-#python $scrip_dir/test_mcd.py --test_path $out_dir/signals/ --save_file $out_dir/mcd_results
+python $scrip_dir/test_mcd.py --test_path $out_dir/signals/ --save_file $out_dir/mcd_results
 
 #CUDA_VISIBLE_DEVICES=$device python $scrip_dir/test_speaker_rec.py --test_path $out_dir/signals/ --save_file $out_dir/spkrec_results --speechbrain_hparam $scrip_dir/speechbrain_model/sb_classifier_hparams.yaml
 
