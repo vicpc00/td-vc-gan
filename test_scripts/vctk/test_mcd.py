@@ -74,6 +74,30 @@ def mfcc_dist(test_file, ref_file, sr=16000):
         
     return dist/len(path), diff_f0_mean, diff_f0_var
 
+def f0_ratio(test_file, ref_file, sr=16000):
+    
+    if test_file in ref_mceps.keys():
+        _, test_f0 = ref_mceps[test_file]
+    else:
+        test_signal,sr = librosa.load(test_file, sr=sr)
+        
+        test_mcep, test_f0 = world_analyze(test_signal, sr)
+        test_mcep = test_mcep[test_f0 > 0] #Remove silence
+    
+    if ref_file in ref_mceps.keys():
+        _, ref_f0 = ref_mceps[ref_file]
+    else:
+        ref_signal,sr = librosa.load(ref_file, sr=sr)
+        
+        ref_mcep, ref_f0 = world_analyze(ref_signal, sr)
+        ref_mcep = ref_mcep[ref_f0 > 0] #Remove silence
+        
+        ref_mceps[ref_file] = (ref_mcep, ref_f0)
+        
+    ratio_f0 = np.mean(ref_f0[ref_f0>0])/np.mean(test_f0[test_f0>0])
+    
+    return ratio_f0
+
 
 def mfcc_dist_old(test_file, ref_file, sr=16000, target_rms=-25):
     
@@ -111,7 +135,7 @@ def main():
     orig_list.sort()
     #print(orig_list)
     
-    results={'mcd_result_conv':{}, 'mcd_result_orig':{}, 'diff_f0_mean':{}, 'diff_f0_var':{}}
+    results={'mcd_result_conv':{}, 'mcd_result_orig':{}, 'diff_f0_mean':{}, 'diff_f0_var':{}, 'f0_ratio':{}, 'f0_ratio_orig':{}}
     
     
 
@@ -132,6 +156,8 @@ def main():
             results['mcd_result_conv'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(mcd_result)
             results['diff_f0_mean'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(diff_f0_mean)
             results['diff_f0_var'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(diff_f0_var)
+            
+            results['f0_ratio'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(f0_ratio(conv_file,src_file))
 
     for src_file in tqdm(orig_list):
         filename_src, src_spk = re.match('(\S+)_(\S+?)-X_orig.wav',os.path.basename(src_file)).groups()
@@ -144,6 +170,8 @@ def main():
                 continue
             mcd_result, _, _ = mfcc_dist(src_file,tgt_file)
             results['mcd_result_orig'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(mcd_result)
+    
+            results['f0_ratio_orig'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(f0_ratio(tgt_file,src_file))
     
     with open(args.save_file,'wb') as f:
         pickle.dump(results,f)
