@@ -13,8 +13,11 @@ import matplotlib.pyplot as plt
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_dir', required=True)
-    parser.add_argument('--save_file', required=True)
+    parser.add_argument('--save_file')
     args = parser.parse_args()
+    if args.save_file is None:
+        args.save_file = os.path.join(args.test_dir,'index.html')
+    
     return args
 
 html_header = '''
@@ -428,19 +431,22 @@ def gen_hist_f0_ratio(result_dict, spks, test_dir):
     count_self = False
     flattened = {}
     
-    for res in ['f0_ratio', 'f0_ratio_orig']:
+    for res in ['f0_ratio', 'f0_ratio_orig', 'diff_f0_mean']:
         flattened[res] = []
         for src_spk in spks:
             for tgt_spk in spks:
                 if src_spk == tgt_spk and not count_self: continue
                 flattened[res] += result_dict[res][src_spk][tgt_spk]
                 
-    fig, axs = plt.subplots(1,2, figsize=(8.8,4.8))
+    fig, axs = plt.subplots(1,3, figsize=(12.8,4.8))
     fig.tight_layout()
-    axs[0].set_title('Ratio of mean f0 - src/conv')
+    axs[0].set_title('Ratio of mean F0 - src/conv')
     axs[0].hist(flattened['f0_ratio'], bins=list(np.linspace(0,3,301)), density=True)
-    axs[1].set_title('Ratio of mean f0 - src/tgt')
+    axs[1].set_title('Ratio of mean F0 - src/tgt')
     axs[1].hist(flattened['f0_ratio_orig'], bins=list(np.linspace(0,3,301)), density=True)
+    axs[2].set_title('Difference between mean of logF0 - conv-tgt')
+    axs[2].hist(flattened['diff_f0_mean'], bins=list(np.linspace(-1.5,1.5,301)), density=True)
+    
 
     
     plt.savefig(os.path.join(test_dir,'histograms_f0_ratio.png'))
