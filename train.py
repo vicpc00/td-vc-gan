@@ -257,6 +257,7 @@ def main():
                 #if hp.train.gan_loss == 'lsgan':
                 g_loss_adv_fake = 0
                 g_loss_cls_fake = 0
+                #TODO Add per disc logging and take mean of losses
                 for out_adv_fake, out_cls_fake in zip(out_adv_fake_list, out_cls_fake_list):
                     g_loss_adv_fake += F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size()).to(device))
                     #g_loss_cls_fake += F.cross_entropy(out_cls_fake, label_tgt)

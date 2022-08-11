@@ -121,7 +121,10 @@ class MultiscaleDiscriminator(nn.Module):
             ret.append(disc(x,c_tgt, c_src))
             x = self.pooling(x)
             
-        out_adv, out_cls, features = zip(*ret)
+        if len(ret)>0:
+            out_adv, out_cls, features = zip(*ret)
+        else:
+            out_adv, out_cls, features = [], [], []
         return list(out_adv), list(out_cls), list(features)
     
 class MultiperiodDiscriminator(nn.Module):
@@ -146,7 +149,10 @@ class MultiperiodDiscriminator(nn.Module):
             
             ret.append(disc(x_,c_tgt, c_src))
             
-        out_adv, out_cls, features = zip(*ret)
+        if len(ret)>0:
+            out_adv, out_cls, features = zip(*ret)
+        else:
+            out_adv, out_cls, features = [], [], []
         return list(out_adv), list(out_cls), list(features)
         
     
