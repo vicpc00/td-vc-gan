@@ -33,8 +33,7 @@ def mel_spectrogram(signal, n_fft, num_mels, sample_rate, win_len, hop_len, fmin
         hann_window = torch.hann_window(win_len).to(signal.device)
         
     spec = torch.stft(signal.squeeze(1),n_fft,hop_length=hop_len, win_length=win_len,window=hann_window,
-                      center=False, pad_mode='reflect',normalized=False,onesided=True,return_complex=False)
-    spec = torch.sqrt(spec.pow(2).sum(-1)+1e-9)
+                      center=False, pad_mode='reflect',normalized=False,onesided=True,return_complex=True).abs()
     spec = torch.matmul(mel_basis,spec)
     spec = torch.log(torch.clamp(spec,min=1e-5))
     
