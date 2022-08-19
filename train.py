@@ -328,7 +328,7 @@ def main():
                 if hp.train.lambda_f0 != 0:
                     f0_tgt = torchyin.estimate(signal_real_tgt.cpu(), sample_rate=hp.model.sample_rate).to(device)
                     f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate).to(device)
-                    g_loss_f0 = torch.abs(torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1) - torch.mean(torch.log(f0_conv[f0_conv>0]),-1))
+                    g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[f0_conv>0],-1))
                     g_loss_f0 = torch.mean(g_loss_f0)
                 else:
                     g_loss_f0 = 0
