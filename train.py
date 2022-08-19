@@ -12,6 +12,8 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+import util.yin as torchyin
+
 import torch.utils.tensorboard as tensorboard
 
 from model.generator import Generator
@@ -149,6 +151,8 @@ def main():
         for param in G.encoder.parameters():
             param.requires_grad = False
 
+    need_target_signal = hp.train.lambda_f0 != 0
+
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
     iter_count = 0
@@ -163,8 +167,12 @@ def main():
             if hp.train.no_conv:
                 label_tgt = label_src
             else:
-                #Random target label
-                label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                if need_target_signal:
+                    perm = np.random.permutation(hp.train.batch_size)
+                    signal_real_tgt, label_tgt = signal_real[perm], label_src[perm]
+                else:
+                    #Random target label
+                    label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
             c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
 
             #Send everything to device
@@ -173,6 +181,8 @@ def main():
             label_tgt = label_tgt.to(device)
             c_src = c_src.to(device)
             c_tgt = c_tgt.to(device)
+            if need_target_signal:
+                signal_real_tgt = signal_real_tgt.to(device)
 
             #Compute fake signal
             signal_fake = G(signal_real,c_tgt,c_src)
@@ -290,7 +300,7 @@ def main():
                 else:
                     g_loss_cont_emb = 0
 
-                    #Identity loss
+                #Identity loss
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
                         signal_idt = G(signal_real, c_src, c_src)
@@ -313,6 +323,16 @@ def main():
                     g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
                 else:
                     g_loss_lat_cls = 0
+                    
+                #F0 loss
+                if hp.train.lambda_f0 != 0:
+                    f0_tgt = torchyin.estimate(signal_real_tgt.cpu(), sample_rate=hp.model.sample_rate).to(device)
+                    f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate).to(device)
+                    g_loss_f0 = torch.abs(torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1) - torch.mean(torch.log(f0_conv[f0_conv>0]),-1))
+                    g_loss_f0 = torch.mean(g_loss_f0)
+                else:
+                    g_loss_f0 = 0
+                    
                 
                 #Full loss
                 g_loss = g_loss_adv_fake + \
@@ -320,7 +340,8 @@ def main():
                          hp.train.lambda_rec*g_loss_rec + \
                          hp.train.lambda_idt*g_loss_idt + \
                          hp.train.lambda_latcls*g_loss_lat_cls + \
-                         hp.train.lambda_cont_emb*g_loss_cont_emb
+                         hp.train.lambda_cont_emb*g_loss_cont_emb + \
+                         hp.train.lambda_f0*g_loss_f0
                 #g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
                 #Optimize
@@ -353,6 +374,7 @@ def main():
                 loss['G_loss_idt'] = g_loss_idt if type(g_loss_idt) == int else g_loss_idt.item()
                 loss['G_loss_lat_cls'] = g_loss_lat_cls if type(g_loss_lat_cls) == int else g_loss_lat_cls.item()
                 loss['G_loss_cont_emb'] = g_loss_cont_emb if type(g_loss_cont_emb) == int else g_loss_cont_emb.item()
+                loss['g_loss_f0'] = g_loss_cont_emb if type(g_loss_f0) == int else g_loss_f0.item()
                 
                 #G_grad_norm = sum([param.grad.norm().item() for param in G.parameters()])
 #                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
