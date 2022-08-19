@@ -13,8 +13,11 @@ import matplotlib.pyplot as plt
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--test_dir', required=True)
-    parser.add_argument('--save_file', required=True)
+    parser.add_argument('--save_file')
     args = parser.parse_args()
+    if args.save_file is None:
+        args.save_file = os.path.join(args.test_dir,'index.html')
+    
     return args
 
 html_header = '''
@@ -255,6 +258,28 @@ def build_result_sumary(result_dict):
         <td style="text-align:center;">{:.3f}</td>
         <td style="text-align:center;">{:.3f}</td>
       </tr>\n'''.format(*dict_stats(result_dict['mcd_result_conv'], False))
+
+    table += '''
+      <tr>
+        <td style="text-align:center;">Diff of log mean F0</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['diff_f0_mean'], False))
+      
+    table += '''
+      <tr>
+        <td style="text-align:center;">Diff of log var F0</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+        <td style="text-align:center;">{:.3f}</td>
+      </tr>\n'''.format(*dict_stats(result_dict['diff_f0_var'], False))
       
     table += '''
       <tr>
@@ -311,13 +336,15 @@ def build_result_sumary(result_dict):
     
     sumary += '<h2>Objective measures per transformation pair</h3>\n'
     
-    sumary += '<h3>Speaker recognition correct rate</h2>\n'
+    sumary += '<h3>Speaker recognition correct rate</h3>\n'
     sumary += build_sumary_table(dict_correct_rate_per_pair(result_dict['test_class']))
-    sumary += '<h3>Mel cepstral distance</h2>\n'
+    sumary += '<h3>Mel cepstral distance</h3>\n'
     sumary += build_sumary_table(dict_stats_per_pair(result_dict['mcd_result_conv']))
-    sumary += '<h3>Embedding similarity</h2>\n'
+    sumary += '<h3>Diff log F0</h3>\n'
+    sumary += build_sumary_table(dict_stats_per_pair(result_dict['diff_f0_mean']))
+    sumary += '<h3>Embedding similarity</h3>\n'
     sumary += build_sumary_table(dict_stats_per_pair(result_dict['emb_dist']))
-    sumary += '<h3>Predicted MOS</h2>\n'
+    sumary += '<h3>Predicted MOS</h3>\n'
     sumary += build_sumary_table(dict_stats_per_pair(result_dict['mos_result_conv']))
     
     
@@ -328,6 +355,7 @@ def build_plots(result_dict, spks, test_dir):
     gen_scatter(result_dict, spks, test_dir)
     gen_boxplots(result_dict, spks, test_dir)
     gen_hists(result_dict, spks, test_dir)
+    gen_hist_f0_ratio(result_dict, spks, test_dir)
     
     plots = '<h2>Objective measures plots</h2>\n'
     plots += '<h4>Histograms of measures</h4>\n'
@@ -398,6 +426,30 @@ def gen_hists(result_dict, spks, test_dir):
     axs[2].hist(flattened['mos_result_conv'], bins=list(np.linspace(1,5,101)), density=True)
     
     plt.savefig(os.path.join(test_dir,'histograms.png'))
+    
+def gen_hist_f0_ratio(result_dict, spks, test_dir):
+    count_self = False
+    flattened = {}
+    
+    for res in ['f0_ratio', 'f0_ratio_orig', 'diff_f0_mean']:
+        flattened[res] = []
+        for src_spk in spks:
+            for tgt_spk in spks:
+                if src_spk == tgt_spk and not count_self: continue
+                flattened[res] += result_dict[res][src_spk][tgt_spk]
+                
+    fig, axs = plt.subplots(1,3, figsize=(12.8,4.8))
+    fig.tight_layout()
+    axs[0].set_title('Ratio of mean F0 - src/conv')
+    axs[0].hist(flattened['f0_ratio'], bins=list(np.linspace(0,3,301)), density=True)
+    axs[1].set_title('Ratio of mean F0 - src/tgt')
+    axs[1].hist(flattened['f0_ratio_orig'], bins=list(np.linspace(0,3,301)), density=True)
+    axs[2].set_title('Difference between mean of logF0 - conv-tgt')
+    axs[2].hist(flattened['diff_f0_mean'], bins=list(np.linspace(-1.5,1.5,301)), density=True)
+    
+
+    
+    plt.savefig(os.path.join(test_dir,'histograms_f0_ratio.png'))
 
 def load_dicts(test_dir):
     result_files = ['spkrec_results', 'mosnet_results', 'mcd_results']

@@ -117,6 +117,7 @@ def main():
                                 hp.model.discriminator.downsampling_factor,
                                 hp.model.discriminator.conditional_dim,
                                 hp.model.discriminator.conditional_spks).to(device)
+
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
         C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0]).to(device)
 
@@ -136,6 +137,7 @@ def main():
         print('Loading from {}'.format(load_path / '{}-G.pt'.format(load_file_base)))
         G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
         D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+
         if 'C' in locals() and os.path.exists(load_path / '{}-C.pt'.format(load_file_base)):
             C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
     else:
