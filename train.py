@@ -122,8 +122,10 @@ def main():
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
         C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0]).to(device)
-        
-    f0_est = F0Estimator().to(device)
+       
+    use_f0_est = False
+    if use_f0_est:
+        f0_est = F0Estimator().to(device)
 
     
     if load_path != None:
@@ -144,7 +146,8 @@ def main():
 
         if 'C' in locals() and os.path.exists(load_path / '{}-C.pt'.format(load_file_base)):
             C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
-        f0_est.load_state_dict(torch.load(load_path / '{}-F0.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        if use_f0_est:
+            f0_est.load_state_dict(torch.load(load_path / '{}-F0.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
     else:
         start_epoch = 0
 
@@ -152,7 +155,8 @@ def main():
     optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
     if 'C' in locals():
         optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
-    optimizer_F0 = torch.optim.Adam(f0_est.parameters(), hp.train.lr_d, hp.train.adam_beta)
+    if use_f0_est:
+        optimizer_F0 = torch.optim.Adam(f0_est.parameters(), hp.train.lr_d, hp.train.adam_beta)
     
     
     if hp.train.freeze_subnets is not None and 'encoder' in hp.train.freeze_subnets:
@@ -265,7 +269,7 @@ def main():
             
             
             #Train f0 estimator
-            if True:
+            if use_f0_est:
                 sig_real_f0_est, sig_real_voiced_est = f0_est(signal_real)
                 sig_real_f0_tgt = torchyin.estimate(signal_real.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
                 sig_real_voiced_tgt = (sig_real_f0_tgt>0).type(sig_real_f0_tgt.dtype).to(device)
@@ -357,8 +361,10 @@ def main():
                 #F0 loss
                 if hp.train.lambda_f0 != 0:
                     f0_tgt = torchyin.estimate(signal_real_tgt.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-                    f0_conv, voiced_conv = f0_est(signal_fake)
-                    g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[voiced_conv>.5],-1))
+                    #f0_conv, voiced_conv = f0_est(signal_fake)
+                    f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
+                    #g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[voiced_conv>.5],-1))
+                    g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[f0_conv>0],-1))
                     g_loss_f0 = torch.mean(g_loss_f0)
                 else:
                     g_loss_f0 = 0
@@ -515,8 +521,9 @@ def main():
             if 'C' in locals():
                 torch.save(C.state_dict(), save_path / 'step{}-C.pt'.format(epoch))
                 torch.save(C.state_dict(), save_path / 'latest-C.pt')
-            torch.save(f0_est.state_dict(), save_path / 'step{}-F0.pt'.format(epoch))
-            torch.save(f0_est.state_dict(), save_path / 'latest-F0.pt')
+            if use_f0_est:
+                torch.save(f0_est.state_dict(), save_path / 'step{}-F0.pt'.format(epoch))
+                torch.save(f0_est.state_dict(), save_path / 'latest-F0.pt')
             with open(save_path / 'latest_epoch','w') as f:
                 f.write(str(epoch))
             print('Saved')

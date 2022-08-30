@@ -28,6 +28,7 @@ def estimate(
     pitch_max: float = 20000,
     frame_stride: float = 0.01,
     threshold: float = 0.1,
+    soft: bool = False
 ) -> torch.Tensor:
     """estimate the pitch (fundamental frequency) of a signal
 
@@ -71,7 +72,10 @@ def estimate(
     # compute the fundamental periods
     frames = _frame(signal, frame_length, frame_stride)
     cmdf = _diff(frames, tau_max)[..., tau_min:]
-    tau = _search(cmdf, tau_max, threshold)
+    if soft:
+        tau = _softsearch(cmdf, tau_max, threshold)
+    else:
+        tau = _search(cmdf, tau_max, threshold)
 
     # convert the periods to frequencies (if periodic) and output
     return torch.where(
@@ -85,6 +89,7 @@ def _frame(signal: torch.Tensor, frame_length: int, frame_stride: int) -> torch.
     # window the signal into overlapping frames, padding to at least 1 frame
     if signal.shape[-1] < frame_length:
         signal = torch.nn.functional.pad(signal, [0, frame_length - signal.shape[-1]])
+    signal = torch.nn.functional.pad(signal, [frame_length//2, frame_length//2-1])
     return signal.unfold(dimension=-1, size=frame_length, step=frame_stride)
 
 
@@ -120,3 +125,16 @@ def _search(cmdf: torch.Tensor, tau_max: int, threshold: float) -> torch.Tensor:
 
     # find the first period satisfying both constraints
     return (beyond_threshold & increasing_slope).int().argmax(-1)
+
+def _softsearch(cmdf: torch.Tensor, tau_max: int, threshold: float) -> torch.Tensor:
+    threshold_mask = (cmdf < threshold).any(dim=-1).int()
+    
+    theda = 100
+    
+    alpha = torch.nn.functional.softmax(-cmdf*theda, dim=-1)
+    idx = torch.arange(cmdf.shape[-1],device=alpha.device)
+    
+    tau = (alpha*idx).sum(-1)
+    tau = tau*threshold_mask
+    
+    return tau
