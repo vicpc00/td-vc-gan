@@ -364,7 +364,7 @@ def main():
                     #f0_conv, voiced_conv = f0_est(signal_fake)
                     f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
                     #g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[voiced_conv>.5],-1))
-                    g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[f0_conv>0],-1))
+                    g_loss_f0 = torch.pow(torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1) - torch.mean(torch.log(f0_conv[f0_conv>0]),-1), 2)
                     g_loss_f0 = torch.mean(g_loss_f0)
                 else:
                     g_loss_f0 = 0
