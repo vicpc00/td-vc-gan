@@ -164,6 +164,9 @@ def main():
             param.requires_grad = False
 
     need_target_signal = hp.train.lambda_f0 != 0
+    
+    f0_means = torch.zeros(train_dataset.num_spk).to(device)
+    f0_Ns = torch.zeros(train_dataset.num_spk).to(device)
 
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
@@ -362,9 +365,15 @@ def main():
                 if hp.train.lambda_f0 != 0:
                     f0_tgt = torchyin.estimate(signal_real_tgt.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
                     #f0_conv, voiced_conv = f0_est(signal_fake)
+                    if epoch == start_epoch:
+                        f0_tgt_mean = torch.sum((f0_tgt>0)*(f0_tgt), (-2,-1))/(torch.sum(f0_tgt>0, (-2,-1))+1e-6)
+                        alpha = f0_Ns[label_tgt]/(f0_Ns[label_tgt]+1)
+                        f0_means[label_tgt] = alpha*f0_Ns[label_tgt] + (1-alpha)*f0_tgt_mean.detach()
+                        f0_Ns[label_tgt] = f0_Ns[label_tgt]+1
+                    
                     f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
 
-                    if True:
+                    if False:
                         #g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[voiced_conv>.5],-1))
                         #g_loss_f0 = torch.pow(torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1) - torch.mean(torch.log(f0_conv[f0_conv>0]),-1), 2)
                         #g_loss_f0 = torch.pow(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[f0_conv>0],-1), 2)
@@ -379,12 +388,11 @@ def main():
                         #mu_src = torch.mean(torch.log(f0_src[f0_src>0]),-1)
                         #mu_tgt = torch.nanmean(torch.log(torch.where(f0_tgt>0, f0_tgt, torch.nan)),-1, keepdim=True)
                         #mu_src = torch.nanmean(torch.log(torch.where(f0_src>0, f0_src, torch.nan)),-1, keepdim=True)
-                        mu_tgt = torch.sum((f0_tgt>0)*torch.log(f0_tgt), -1, keepdim=True)/torch.sum(f0_tgt>0, -1, keepdim=True)
-                        mu_src = torch.sum((f0_src>0)*torch.log(f0_src), -1, keepdim=True)/torch.sum(f0_src>0, -1, keepdim=True)
-                        mu_tgt[mu_tgt.isnan() | mu_src.isnan()] = 0
-                        mu_src[mu_tgt.isnan() | mu_src.isnan()] = 0
+                        mu_conv = torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/torch.sum(f0_conv>0, -1, keepdim=True)
+                        mu_tgt = f0_means[label_tgt].view(mu_conv.shape)
+                        
                         f0_conv_alt = torch.zeros(f0_src.shape).to(device)
-                        f0_conv_alt[f0_src>0] = torch.exp(torch.log(f0_src) - mu_src + mu_tgt)[f0_src>0]
+                        f0_conv_alt[f0_conv>0] = (f0_conv - mu_conv + mu_tgt)[f0_conv>0]
                         g_loss_f0 = F.mse_loss(f0_conv[f0_conv>0],f0_conv_alt[f0_conv>0])
                 else:
                     g_loss_f0 = 0
