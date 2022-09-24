@@ -150,6 +150,43 @@ class Encoder(nn.Module):
         return x
         #return self.encoder(x)
           
+class SpeakerEncoder(nn.Module):
+    def __init__(self, embedding_dim, downsample_ratios,channel_sizes, n_res_blocks, norm_layer = nn.InstanceNorm1d, weight_norm = lambda x: x):
+        super().__init__()
+        
+        model = nn.ModuleList()
+        
+        leaky_relu_slope = 0.2
+        
+        model += [weight_norm(nn.Conv1d(1,channel_sizes[0],
+                              kernel_size=7, padding=3,
+                              padding_mode='reflect'))]
+        
+        for i,r in enumerate(downsample_ratios):
+            model += [norm_layer(channel_sizes[i]),
+                      nn.LeakyReLU(leaky_relu_slope),
+                      weight_norm(nn.Conv1d(channel_sizes[i], channel_sizes[i+1],
+                                         kernel_size = 2*r,
+                                         stride = r,
+                                         padding=r // 2 + r % 2,))]
+            for j in range(n_res_blocks):
+                model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
+                                      leaky_relu_slope=leaky_relu_slope,
+                                      norm_layer = norm_layer,
+                                      weight_norm = weight_norm)]
+
+        self.encoder = model
+        
+        self.out_layer = nn.Linear(channel_sizes[-1], embedding_dim)
+        
+    def forward(self, x):
+        for mod in self.encoder:
+            x = mod(x)
+        x = torch.mean(x,dim=-1)
+        x = self.out_layer(x)
+        
+        return x
+        
 
 class Decoder(nn.Module):
     def __init__(self,upsample_ratios,channel_sizes, n_res_blocks, conditional_dim = 0, norm_layer = nn.InstanceNorm1d, weight_norm = lambda x: x):
@@ -210,6 +247,8 @@ class Decoder(nn.Module):
 
 class Generator(nn.Module):
     def __init__(self, decoder_ratios, decoder_channels, 
+                 content_encoder_ratios, content_encoder_channels, 
+                 speaker_encoder_ratios, speaker_encoder_channels, 
                  num_bottleneck_layers, num_classes, conditional_dim,
                  norm_layer = 'instance_norm', weight_norm = None, #either None, str or (str,str,str)
                  bot_cond = 'target', enc_cond = None, dec_cond = None, 
@@ -251,7 +290,9 @@ class Generator(nn.Module):
         self.cin = bot_norm_layer is ConditionalInstanceNorm
         
         self.decoder = Decoder(decoder_ratios, decoder_channels[:], num_res_blocks, dec_cond_dim, dec_norm_layer, dec_weight_norm)
-        self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, enc_cond_dim, enc_norm_layer, enc_weight_norm)
+        self.encoder = Encoder(content_encoder_ratios, content_encoder_channels, num_res_blocks, enc_cond_dim, enc_norm_layer, enc_weight_norm)
+        self.speaker_encoder = SpeakerEncoder(conditional_dim, speaker_encoder_ratios,speaker_encoder_channels, 
+                                              num_res_blocks, norm_layer = enc_norm_layer, weight_norm = enc_weight_norm)
         
         bottleneck = nn.ModuleList()
         if not self.cin:
@@ -267,7 +308,7 @@ class Generator(nn.Module):
         #self.bottleneck = nn.Sequential(*bottleneck)
         self.bottleneck = bottleneck
 
-        self.embedding = nn.Linear(num_classes, conditional_dim)
+        #self.embedding = nn.Linear(num_classes, conditional_dim)
         #self.embedding = nn.Embedding(num_classes, conditional_dim)
         
     def _bottleneck(self,x,c):
@@ -283,19 +324,14 @@ class Generator(nn.Module):
             #x = self.bottleneck(x,c)
         return x
 
-    def forward(self,x,c_tgt, c_src = None):
-        c_tgt = self.embedding(c_tgt)
-        c_src = self.embedding(c_src) if c_src != None else None
+    def forward(self,x,y):
+        c_tgt = self.speaker_encoder(y)
         
-        x = self.encoder(x,c_src)
+        x = self.encoder(x)
         if self.output_content_emb:
             self.content_embedding=x
         
-        if self.both_cond:
-            c = torch.cat([c_src,c_tgt],dim=1)
-            x = self._bottleneck(x,c)
-        else:
-            x = self._bottleneck(x,c_tgt)
+        x = self._bottleneck(x,c_tgt)
         
         x = self.decoder(x,c_tgt)
         

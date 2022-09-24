@@ -98,8 +98,9 @@ def main():
     wn = hp.model.generator.weight_norm
     cond = hp.model.generator.conditioning
     latent_classier = True
-    G = Generator(hp.model.generator.decoder_ratios,
-                  hp.model.generator.decoder_channels,
+    G = Generator(hp.model.generator.decoder_ratios, hp.model.generator.decoder_channels,
+                  hp.model.generator.content_encoder_ratios, hp.model.generator.content_encoder_channels,
+                  hp.model.generator.speaker_encoder_ratios, hp.model.generator.speaker_encoder_channels,
                   hp.model.generator.num_bottleneck_layers,
                   train_dataset.num_spk, 
                   hp.model.generator.conditional_dim,
@@ -165,24 +166,28 @@ def main():
             c_src = label2onehot(label_src,train_dataset.num_spk)
             if hp.train.no_conv:
                 label_tgt = label_src
+                signal_tgt = signal_real
             else:
                 #Random target label
-                label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                #label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                perm = np.random.permutation(hp.train.batch_size)
+                perm = np.random.permutation(hp.train.batch_size)
             c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
 
             #Send everything to device
             signal_real = signal_real.to(device)
+            signal_tgt = signal_tgt.to(device)
             label_src = label_src.to(device)
             label_tgt = label_tgt.to(device)
             c_src = c_src.to(device)
             c_tgt = c_tgt.to(device)
 
             #Compute fake signal
-            signal_fake = G(signal_real,c_tgt,c_src)
+            signal_fake = G(signal_real,signal_tgt)
             
             #Discriminator training
             #Real signal losses
-            out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
+            out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src)
             #print(out_adv)
             #print(label_src.shape, out_cls_real_list[0].shape)
             """
@@ -192,7 +197,7 @@ def main():
                 d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
             """
             #Fake signal losses
-            out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
+            out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt)
             """
             d_loss_cls_fake = 0
             for out_cls_fake in out_cls_fake_list:
@@ -260,9 +265,9 @@ def main():
             if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
 
                 #Fake signal losses
-                signal_fake = G(signal_real,c_tgt,c_src)
+                signal_fake = G(signal_real, signal_tgt)
                 sig_real_cont_emb = G.content_embedding.clone()
-                out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt,c_src)
+                out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt)
                 #if hp.train.gan_loss == 'lsgan':
                 g_loss_adv_fake = 0
                 g_loss_cls_fake = 0
@@ -273,9 +278,9 @@ def main():
                     
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec = G(signal_fake, c_src, c_tgt)
+                    signal_rec = G(signal_fake, signal_real)
                     if hp.train.rec_loss == 'feat':
-                        _, _, features_rec_list = D(signal_rec,c_src,c_tgt)
+                        _, _, features_rec_list = D(signal_rec,c_src)
                         g_loss_rec = 0
                         for features_rec, features_real in zip(features_rec_list, features_real_list):
                             for feat_rec, feat_real in zip(features_rec, features_real):
@@ -296,11 +301,11 @@ def main():
                     #Identity loss
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
-                        signal_idt = G(signal_real, c_src, c_src)
+                        signal_idt = G(signal_real, signal_real)
                     else:
                         signal_idt = signal_fake
                     if hp.train.rec_loss == 'feat':
-                        _, _, features_idt_list = D(signal_idt,c_src,c_src)
+                        _, _, features_idt_list = D(signal_idt,c_src)
                         g_loss_idt = 0
                         for features_idt, features_real in zip(features_idt_list, features_real_list):
                             for feat_idt, feat_real in zip(features_idt, features_real):
