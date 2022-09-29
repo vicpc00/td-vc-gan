@@ -88,7 +88,7 @@ def main():
                                    shuffle=True,pin_memory=True,
                                    worker_init_fn=worker_init_fn)
     test_data_loader = torch.utils.data.DataLoader(test_dataset,
-                                   batch_size=1,
+                                   batch_size=2,
                                    num_workers=1,
                                    collate_fn=dataset.collate_fn,
                                    shuffle=True,pin_memory=True,
@@ -148,11 +148,10 @@ def main():
     if 'C' in locals():
         optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
     
-    
     if hp.train.freeze_subnets is not None and 'encoder' in hp.train.freeze_subnets:
         for param in G.encoder.parameters():
             param.requires_grad = False
-
+                
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
     iter_count = 0
@@ -171,7 +170,7 @@ def main():
                 #Random target label
                 #label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
                 perm = np.random.permutation(hp.train.batch_size)
-                perm = np.random.permutation(hp.train.batch_size)
+                signal_tgt, label_tgt = signal_real[perm], label_src[perm]
             c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
 
             #Send everything to device
@@ -384,6 +383,7 @@ def main():
                     print(', {}: {:.4f}'.format(label, value),end='')
                 print()
             iter_count += 1
+
         if epoch % hp.log.val_interval == 0:
             print('Validation loop')
             G.eval()
@@ -395,24 +395,29 @@ def main():
                     c_src = label2onehot(label_src,train_dataset.num_spk)
                     if hp.train.no_conv:
                         label_tgt = label_src
+                        signal_tgt = signal_real
                     else:
                         #Random target label
-                        label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                        #label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                        #perm = np.random.permutation(hp.val.batch_size)
+                        perm = torch.tensor([1,0]) if signal_real.shape[0] > 1 else torch.tensor([0])
+                        signal_tgt, label_tgt = signal_real[perm], label_src[perm]
                     c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
         
                     #Send everything to device
                     signal_real = signal_real.to(device)
+                    signal_tgt = signal_tgt.to(device)
                     label_src = label_src.to(device)
                     label_tgt = label_tgt.to(device)
                     c_src = c_src.to(device)
                     c_tgt = c_tgt.to(device)
                     
                     #Compute fake signal
-                    signal_fake = G(signal_real,c_tgt,c_src)
+                    signal_fake = G(signal_real,signal_tgt)
                     #Real signal losses
-                    out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
+                    out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src)
                     #Fake signal losses
-                    out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
+                    out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt)
                     
                     d_loss_adv_real = 0
                     d_loss_adv_fake = 0
@@ -484,21 +489,28 @@ def main():
                 signal_real, label_src = data
                 c_src = label2onehot(label_src,train_dataset.num_spk)
                 
-                label_tgt = label_src if hp.train.no_conv else torch.randint(train_dataset.num_spk,label_src.shape)
+                if hp.train.no_conv:
+                    label_tgt = label_src
+                    signal_tgt = signal_real
+                else:
+                    #Random target label
+                    perm = torch.tensor([1,0]) if signal_real.shape[0] > 1 else torch.tensor([0])
+                    signal_tgt, label_tgt = signal_real[perm], label_src[perm]
                 c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
                 
                 signal_real = signal_real.to(device)
-                label_src = label_src.item()
-                label_tgt = label_tgt.item()
+                signal_tgt = signal_tgt.to(device)
+                label_src = label_src[0].item()
+                label_tgt = label_tgt[0].item()
                 c_src = c_src.to(device)
                 c_tgt = c_tgt.to(device)
                 
-                signal_fake = G(signal_real,c_tgt,c_src)
-                signal_rec = G(signal_fake,c_src,c_tgt)
+                signal_fake = G(signal_real,signal_tgt)
+                signal_rec = G(signal_fake,signal_real)
                 
-                signal_real = signal_real.squeeze().cpu().detach().numpy()
-                signal_fake = signal_fake.squeeze().cpu().detach().numpy()
-                signal_rec  = signal_rec.squeeze().cpu().detach().numpy()
+                signal_real = signal_real[0].squeeze().cpu().detach().numpy()
+                signal_fake = signal_fake[0].squeeze().cpu().detach().numpy()
+                signal_rec  = signal_rec[0].squeeze().cpu().detach().numpy()
                 
                 sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_conv.wav'.format(epoch,i,label_src,label_tgt),signal_fake,hp.model.sample_rate)
                 sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_orig.wav'.format(epoch,i,label_src,label_tgt),signal_real,hp.model.sample_rate)
