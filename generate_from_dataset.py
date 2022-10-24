@@ -47,18 +47,41 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     
-    test_dataset = dataset.WaveDataset(data_path / args.data_file, data_path / 'speakers', sample_rate=hp.model.sample_rate)
+    test_dataset = dataset.WaveDataset(data_path / args.data_file, data_path / 'speakers', sample_rate=hp.model.sample_rate, add_new_spks=True)
     test_data_loader = torch.utils.data.DataLoader(test_dataset,
                                    batch_size=1,
                                    num_workers=1,
                                    collate_fn=dataset.collate_fn,
                                    shuffle=False,pin_memory=True)
     
+    ds_spks = [] #Speakers that are actually in the dataset
+    for i, data in enumerate(test_data_loader):
+        signal_real, label_src = data
+        if label_src not in ds_spks:
+            ds_spks.append(label_src.item())
+    #print(ds_spks)
+    #print(test_data_loader.dataset.spk_dict)
+    #print(test_dataset.spk_reverse_dict)
+    #print(test_data_loader.dataset.dataset)
+    
+    speaker_datasets = {}
+    speaker_dataloaders = {}
+    for spk_id in ds_spks:
+        spk_label = test_dataset.spk_reverse_dict[spk_id]
+        speaker_dataset = dataset.SpeakerDataset(spk_label, data_path / args.data_file, data_path / 'speakers', sample_rate=hp.model.sample_rate, add_new_spks=True)
+        speaker_dataloader = torch.utils.data.DataLoader(speaker_dataset,
+                                                            batch_size=1,
+                                                            num_workers=1,
+                                                            collate_fn=dataset.collate_fn,
+                                                            shuffle=True,pin_memory=True)
+        speaker_dataloaders[spk_id] = speaker_dataloader
+    
     nl = hp.model.generator.norm_layer
     wn = hp.model.generator.weight_norm
     cond = hp.model.generator.conditioning
-    G = Generator(hp.model.generator.decoder_ratios,
-                  hp.model.generator.decoder_channels,
+    G = Generator(hp.model.generator.decoder_ratios, hp.model.generator.decoder_channels,
+                  hp.model.generator.content_encoder_ratios, hp.model.generator.content_encoder_channels,
+                  hp.model.generator.speaker_encoder_ratios, hp.model.generator.speaker_encoder_channels,
                   hp.model.generator.num_bottleneck_layers,
                   test_dataset.num_spk, 
                   hp.model.generator.conditional_dim,
@@ -70,15 +93,10 @@ def main():
     print('Loading from {}'.format(load_path / g_file))
     G.load_state_dict(torch.load(load_path / g_file, map_location=lambda storage, loc: storage))
     
-    ds_spks = []
-    for i, data in enumerate(test_data_loader):
-        signal_real, label_src = data
-        if label_src not in ds_spks:
-            ds_spks.append(label_src.item())
-    #print(ds_spks)
-    #print(test_data_loader.dataset.dataset)
-    
     for i, data in tqdm(enumerate(test_data_loader)):
+        
+        speaker_dataloader_iters = {spk_id: iter(dl) for spk_id, dl in speaker_dataloaders.items()}
+        
         signal_real, label_src = data
         c_src = label2onehot(label_src,test_dataset.num_spk)
         signal_real = signal_real.to(device)
@@ -90,14 +108,17 @@ def main():
         #print(type(signal_real))
         
         for tgt_spk in ds_spks:
-            label_tgt = torch.tensor([tgt_spk])
+            signal_tgt, label_tgt = next(speaker_dataloader_iters[tgt_spk])
+            
+            #label_tgt = torch.tensor([tgt_spk])
             c_tgt = label2onehot(label_tgt,test_dataset.num_spk)
             #print(c_src, c_tgt)
             label_tgt = label_tgt.item()
             
+            signal_tgt = signal_tgt.to(device)
             c_tgt = c_tgt.to(device)
             
-            signal_fake = G(signal_real,c_tgt,c_src)
+            signal_fake = G(signal_real,signal_tgt)
             
             signal_fake = signal_fake.squeeze().cpu().detach().numpy()
             
