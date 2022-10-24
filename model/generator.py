@@ -330,6 +330,7 @@ class Generator(nn.Module):
         x = self.encoder(x)
         if self.output_content_emb:
             self.content_embedding=x
+            self.speaker_embedding=c_tgt
         
         x = self._bottleneck(x,c_tgt)
         

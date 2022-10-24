@@ -266,6 +266,7 @@ def main():
                 #Fake signal losses
                 signal_fake = G(signal_real, signal_tgt)
                 sig_real_cont_emb = G.content_embedding.clone()
+                sig_real_spk_emb  = G.speaker_embedding.clone()
                 out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt)
                 #if hp.train.gan_loss == 'lsgan':
                 g_loss_adv_fake = 0
@@ -296,8 +297,14 @@ def main():
                     g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
                 else:
                     g_loss_cont_emb = 0
+                #Speaker embedding loss
+                if hp.train.lambda_spk_emb > 0:
+                    sig_fake_spk_emb = G.speaker_encoder(signal_fake)
+                    g_loss_spk_emb = torch.mean(torch.abs(sig_fake_spk_emb - sig_real_spk_emb))
+                else:
+                    g_loss_spk_emb = 0
 
-                    #Identity loss
+                #Identity loss
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
                         signal_idt = G(signal_real, signal_real)
@@ -327,7 +334,8 @@ def main():
                          hp.train.lambda_rec*g_loss_rec + \
                          hp.train.lambda_idt*g_loss_idt + \
                          hp.train.lambda_latcls*g_loss_lat_cls + \
-                         hp.train.lambda_cont_emb*g_loss_cont_emb
+                         hp.train.lambda_cont_emb*g_loss_cont_emb + \
+                         hp.train.lambda_spk_emb*g_loss_spk_emb
                 #g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
                 #Optimize
@@ -360,6 +368,7 @@ def main():
                 loss['G_loss_idt'] = g_loss_idt if type(g_loss_idt) == int else g_loss_idt.item()
                 loss['G_loss_lat_cls'] = g_loss_lat_cls if type(g_loss_lat_cls) == int else g_loss_lat_cls.item()
                 loss['G_loss_cont_emb'] = g_loss_cont_emb if type(g_loss_cont_emb) == int else g_loss_cont_emb.item()
+                loss['G_loss_spk_emb'] = g_loss_spk_emb if type(g_loss_spk_emb) == int else g_loss_spk_emb.item()
                 
                 #G_grad_norm = sum([param.grad.norm().item() for param in G.parameters()])
 #                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
