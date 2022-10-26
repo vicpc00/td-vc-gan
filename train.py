@@ -16,7 +16,7 @@ import torch.utils.tensorboard as tensorboard
 
 from model.generator import Generator
 from model.discriminator import MultiscaleDiscriminator
-from model.latent_classifier import LatentClassifier
+from model.latent_classifier import LatentContentClassifier, LatentSpeakerClassifier
 import data.dataset as dataset
 
 from util.hparams import HParam
@@ -118,7 +118,8 @@ def main():
                                 hp.model.discriminator.conditional_spks).to(device)
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
-        C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0]).to(device)
+        C_cont = LatentContentClassifier(train_dataset.num_spk,hp.model.generator.content_encoder_channels[-1]).to(device)
+        C_spk  = LatentSpeakerClassifier(train_dataset.num_spk,hp.model.generator.conditional_dim).to(device)
 
     
     if load_path != None:
@@ -137,16 +138,20 @@ def main():
         G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
         D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
 
-        if 'C' in locals() and os.path.exists(load_path / '{}-C.pt'.format(load_file_base)):
-            C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        if 'C_cont' in locals() and os.path.exists(load_path / '{}-C_cont.pt'.format(load_file_base)):
+            C_cont.load_state_dict(torch.load(load_path / '{}-C_cont.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+            C_spk.load_state_dict(torch.load(load_path / '{}-C_spk.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+            
     else:
         start_epoch = 0
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
     optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
 
-    if 'C' in locals():
-        optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
+    if 'C_cont' in locals():
+        optimizer_C = torch.optim.Adam(list(C_cont.parameters()) + list(C_spk.parameters()), 
+                                       hp.train.lr_d, hp.train.adam_beta)
+        
     
     if hp.train.freeze_subnets is not None and 'encoder' in hp.train.freeze_subnets:
         for param in G.encoder.parameters():
@@ -170,6 +175,8 @@ def main():
                 #Random target label
                 #label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
                 perm = np.random.permutation(hp.train.batch_size)
+                iperm = np.empty_like(perm)
+                iperm[perm] = np.arange(perm.size) #inverse permutation
                 signal_tgt, label_tgt = signal_real[perm], label_src[perm]
             c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
 
@@ -241,15 +248,23 @@ def main():
             #Latent classifier step
             if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
                 sig_cont_emb = G.content_embedding
-                out_lat_cls = C(sig_cont_emb)
-                c_loss = F.cross_entropy(out_lat_cls,label_src)
+                out_lat_cont_cls = C_cont(sig_cont_emb)
+                c_cont_loss = F.cross_entropy(out_lat_cont_cls,label_src)
+                
+                sig_spk_emb = G.speaker_embedding
+                out_lat_spk_cls = C_spk(sig_spk_emb)
+                c_spk_loss = F.cross_entropy(out_lat_spk_cls,label_tgt)
+                
+                c_loss = c_cont_loss + c_spk_loss
                 
                 optimizer_C.zero_grad()
                 c_loss.backward()
                 optimizer_C.step()
             
-                loss['C_loss'] = c_loss.item()
-                loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
+                loss['C_cont_loss'] = c_cont_loss.item()
+                loss['C_cont_acc'] = torch.sum(torch.argmax(out_lat_cont_cls,dim=1) == label_src)/hp.train.batch_size
+                loss['C_spk_loss'] = c_spk_loss.item()
+                loss['C_spk_acc'] = torch.sum(torch.argmax(out_lat_spk_cls,dim=1) == label_tgt)/hp.train.batch_size
             
             del out_adv_real_list, out_cls_real_list
             del out_adv_fake_list, out_cls_fake_list, features_fake_list
@@ -257,7 +272,7 @@ def main():
             del out_cls_real, out_cls_fake, d_loss_cls
             del d_loss
             if hp.train.lambda_latcls != 0:
-                del out_lat_cls, c_loss
+                del out_lat_cont_cls, out_lat_spk_cls, c_loss, c_cont_loss, c_spk_loss
             
 
             #Generator training
@@ -301,6 +316,12 @@ def main():
                 if hp.train.lambda_spk_emb > 0:
                     sig_fake_spk_emb = G.speaker_encoder(signal_fake)
                     g_loss_spk_emb = torch.mean(torch.abs(sig_fake_spk_emb - sig_real_spk_emb))
+                    
+                    #mask = torch.tensor((perm != arange(perm.size)).astype(int))
+                    #g_loss_spk_emb_diff = torch.mean(torch.abs(sig_real_spk_emb - sig_real_spk_emb[rperm]), dim=-1)
+                    #g_loss_spk_emb_diff = torch.mean(g_loss_spk_emb_diff*mask)
+                    
+                    
                 else:
                     g_loss_spk_emb = 0
 
@@ -323,8 +344,11 @@ def main():
                     
                 #Latent classification loss
                 if hp.train.lambda_latcls != 0:
-                    out_lat_cls = C(sig_real_cont_emb)
-                    g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
+                    out_lat_cont_cls = C_cont(sig_real_cont_emb)
+                    g_loss_lat_cont_cls = F.cross_entropy(out_lat_cont_cls,label_src)
+                    out_lat_spk_cls = C_spk(sig_real_spk_emb)
+                    g_loss_lat_spk_cls = F.cross_entropy(out_lat_spk_cls,label_tgt)
+                    g_loss_lat_cls = g_loss_lat_cont_cls + g_loss_lat_spk_cls
                 else:
                     g_loss_lat_cls = 0
                 
@@ -446,9 +470,9 @@ def main():
                         g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
                     d_loss_cls = d_loss_cls_real+d_loss_cls_fake
                     
-                    if 'C' in locals():
+                    if 'C_cont' in locals():
                         sig_cont_emb = G.content_embedding
-                        out_lat_cls = C(sig_cont_emb)
+                        out_lat_cls = C_cont(sig_cont_emb)
                         g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
                         c_acc = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)
                     else:
@@ -482,9 +506,11 @@ def main():
             torch.save(D.state_dict(), save_path / 'step{}-D.pt'.format(epoch))
             torch.save(G.state_dict(), save_path / 'latest-G.pt')
             torch.save(D.state_dict(), save_path / 'latest-D.pt')
-            if 'C' in locals():
-                torch.save(C.state_dict(), save_path / 'step{}-C.pt'.format(epoch))
-                torch.save(C.state_dict(), save_path / 'latest-C.pt')
+            if 'C_cont' in locals():
+                torch.save(C_cont.state_dict(), save_path / 'step{}-C_cont.pt'.format(epoch))
+                torch.save(C_cont.state_dict(), save_path / 'latest-C_cont.pt')
+                torch.save(C_cont.state_dict(), save_path / 'step{}-C_spk.pt'.format(epoch))
+                torch.save(C_cont.state_dict(), save_path / 'latest-C_spk.pt')
             with open(save_path / 'latest_epoch','w') as f:
                 f.write(str(epoch))
             print('Saved')
