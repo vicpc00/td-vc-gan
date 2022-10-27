@@ -1,3 +1,4 @@
+
 import os
 import sys
 import shutil
@@ -12,11 +13,16 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+import util.yin as torchyin
+
 import torch.utils.tensorboard as tensorboard
 
 from model.generator import Generator
 from model.discriminator import MultiscaleDiscriminator
+
 from model.latent_classifier import LatentContentClassifier, LatentSpeakerClassifier
+from model.f0_estimator import F0Estimator
+
 import data.dataset as dataset
 
 from util.hparams import HParam
@@ -118,8 +124,14 @@ def main():
                                 hp.model.discriminator.conditional_spks).to(device)
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
+
         C_cont = LatentContentClassifier(train_dataset.num_spk,hp.model.generator.content_encoder_channels[-1]).to(device)
         C_spk  = LatentSpeakerClassifier(train_dataset.num_spk,hp.model.generator.conditional_dim).to(device)
+    
+    use_f0_est = False
+    if use_f0_est:
+        f0_est = F0Estimator().to(device)
+
 
     
     if load_path != None:
@@ -138,25 +150,37 @@ def main():
         G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
         D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
 
+
         if 'C_cont' in locals() and os.path.exists(load_path / '{}-C_cont.pt'.format(load_file_base)):
             C_cont.load_state_dict(torch.load(load_path / '{}-C_cont.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
             C_spk.load_state_dict(torch.load(load_path / '{}-C_spk.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
             
+        if use_f0_est:
+            f0_est.load_state_dict(torch.load(load_path / '{}-F0.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+
     else:
         start_epoch = 0
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
     optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
 
+
     if 'C_cont' in locals():
         optimizer_C = torch.optim.Adam(list(C_cont.parameters()) + list(C_spk.parameters()), 
                                        hp.train.lr_d, hp.train.adam_beta)
-        
+
+    if use_f0_est:
+        optimizer_F0 = torch.optim.Adam(f0_est.parameters(), hp.train.lr_d, hp.train.adam_beta)
     
+
     if hp.train.freeze_subnets is not None and 'encoder' in hp.train.freeze_subnets:
         for param in G.encoder.parameters():
             param.requires_grad = False
-                
+
+    
+    f0_means = torch.zeros(train_dataset.num_spk).to(device)
+    f0_Ns = torch.zeros(train_dataset.num_spk).to(device)
+
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
     iter_count = 0
@@ -178,6 +202,7 @@ def main():
                 iperm = np.empty_like(perm)
                 iperm[perm] = np.arange(perm.size) #inverse permutation
                 signal_tgt, label_tgt = signal_real[perm], label_src[perm]
+
             c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
 
             #Send everything to device
@@ -187,6 +212,7 @@ def main():
             label_tgt = label_tgt.to(device)
             c_src = c_src.to(device)
             c_tgt = c_tgt.to(device)
+
 
             #Compute fake signal
             signal_fake = G(signal_real,signal_tgt)
@@ -265,6 +291,28 @@ def main():
                 loss['C_cont_acc'] = torch.sum(torch.argmax(out_lat_cont_cls,dim=1) == label_src)/hp.train.batch_size
                 loss['C_spk_loss'] = c_spk_loss.item()
                 loss['C_spk_acc'] = torch.sum(torch.argmax(out_lat_spk_cls,dim=1) == label_tgt)/hp.train.batch_size
+            
+            
+            
+            #Train f0 estimator
+            if use_f0_est:
+                sig_real_f0_est, sig_real_voiced_est = f0_est(signal_real)
+                sig_real_f0_tgt = torchyin.estimate(signal_real.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                sig_real_voiced_tgt = (sig_real_f0_tgt>0).type(sig_real_f0_tgt.dtype).to(device)
+                
+                if (sig_real_f0_est>0).any():
+                    f0_loss = F.binary_cross_entropy(sig_real_voiced_est, sig_real_voiced_tgt) + \
+                              F.mse_loss(sig_real_f0_est[sig_real_f0_est>0],sig_real_f0_tgt[sig_real_f0_est>0])
+                else:
+                    f0_loss = F.binary_cross_entropy(sig_real_voiced_est, sig_real_voiced_tgt)
+                    with open(save_path /f'weird_signal-e{epoch}-i{i}','wb') as f:
+                        pickle.dump(signal_real,f)
+                         
+                optimizer_F0.zero_grad()
+                f0_loss.backward()
+                optimizer_F0.step()
+                
+                loss['F0_loss'] = f0_loss
             
             del out_adv_real_list, out_cls_real_list
             del out_adv_fake_list, out_cls_fake_list, features_fake_list
@@ -351,6 +399,43 @@ def main():
                     g_loss_lat_cls = g_loss_lat_cont_cls + g_loss_lat_spk_cls
                 else:
                     g_loss_lat_cls = 0
+                    
+                #F0 loss
+                if hp.train.lambda_f0 != 0:
+                    f0_tgt = torchyin.estimate(signal_tgt.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                    #f0_conv, voiced_conv = f0_est(signal_fake)
+                    if epoch == start_epoch:
+                        f0_tgt_mean = torch.sum((f0_tgt>0)*(f0_tgt), (-2,-1))/(torch.sum(f0_tgt>0, (-2,-1))+1e-6)
+                        alpha = f0_Ns[label_tgt]/(f0_Ns[label_tgt]+1)
+                        f0_means[label_tgt] = alpha*f0_Ns[label_tgt] + (1-alpha)*f0_tgt_mean.detach()
+                        f0_Ns[label_tgt] = f0_Ns[label_tgt]+1
+                    
+                    f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
+
+                    if True:
+                        #g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[voiced_conv>.5],-1))
+                        #g_loss_f0 = torch.pow(torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1) - torch.mean(torch.log(f0_conv[f0_conv>0]),-1), 2)
+                        #g_loss_f0 = torch.pow(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[f0_conv>0],-1), 2)
+                        g_loss_f0 = torch.pow(torch.sum((f0_tgt>0)*(f0_tgt), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6) -
+                                              torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/(torch.sum(f0_conv>0, -1, keepdim=True)+1e-6),2)
+                        #g_loss_f0[g_loss_f0.isnan().detach()] = 0
+                        g_loss_f0 = torch.mean(g_loss_f0)
+
+                    else:
+                        f0_src = torchyin.estimate(signal_real.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                        #mu_tgt = torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1)
+                        #mu_src = torch.mean(torch.log(f0_src[f0_src>0]),-1)
+                        #mu_tgt = torch.nanmean(torch.log(torch.where(f0_tgt>0, f0_tgt, torch.nan)),-1, keepdim=True)
+                        #mu_src = torch.nanmean(torch.log(torch.where(f0_src>0, f0_src, torch.nan)),-1, keepdim=True)
+                        mu_conv = torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/torch.sum(f0_conv>0, -1, keepdim=True)
+                        mu_tgt = f0_means[label_tgt].view(mu_conv.shape)
+                        
+                        f0_conv_alt = torch.zeros(f0_src.shape).to(device)
+                        f0_conv_alt[f0_conv>0] = (f0_conv - mu_conv + mu_tgt)[f0_conv>0]
+                        g_loss_f0 = F.mse_loss(f0_conv[f0_conv>0],f0_conv_alt[f0_conv>0])
+                else:
+                    g_loss_f0 = 0
+                    
                 
                 #Full loss
                 g_loss = g_loss_adv_fake + \
@@ -359,7 +444,9 @@ def main():
                          hp.train.lambda_idt*g_loss_idt + \
                          hp.train.lambda_latcls*g_loss_lat_cls + \
                          hp.train.lambda_cont_emb*g_loss_cont_emb + \
-                         hp.train.lambda_spk_emb*g_loss_spk_emb
+                         hp.train.lambda_spk_emb*g_loss_spk_emb + \
+                         hp.train.lambda_f0*g_loss_f0
+
                 #g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
                 #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
                 #Optimize
@@ -393,6 +480,8 @@ def main():
                 loss['G_loss_lat_cls'] = g_loss_lat_cls if type(g_loss_lat_cls) == int else g_loss_lat_cls.item()
                 loss['G_loss_cont_emb'] = g_loss_cont_emb if type(g_loss_cont_emb) == int else g_loss_cont_emb.item()
                 loss['G_loss_spk_emb'] = g_loss_spk_emb if type(g_loss_spk_emb) == int else g_loss_spk_emb.item()
+                loss['g_loss_f0'] = g_loss_cont_emb if type(g_loss_f0) == int else g_loss_f0.item()
+
                 
                 #G_grad_norm = sum([param.grad.norm().item() for param in G.parameters()])
 #                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
@@ -506,11 +595,17 @@ def main():
             torch.save(D.state_dict(), save_path / 'step{}-D.pt'.format(epoch))
             torch.save(G.state_dict(), save_path / 'latest-G.pt')
             torch.save(D.state_dict(), save_path / 'latest-D.pt')
+
             if 'C_cont' in locals():
                 torch.save(C_cont.state_dict(), save_path / 'step{}-C_cont.pt'.format(epoch))
                 torch.save(C_cont.state_dict(), save_path / 'latest-C_cont.pt')
                 torch.save(C_cont.state_dict(), save_path / 'step{}-C_spk.pt'.format(epoch))
                 torch.save(C_cont.state_dict(), save_path / 'latest-C_spk.pt')
+
+            if use_f0_est:
+                torch.save(f0_est.state_dict(), save_path / 'step{}-F0.pt'.format(epoch))
+                torch.save(f0_est.state_dict(), save_path / 'latest-F0.pt')
+
             with open(save_path / 'latest_epoch','w') as f:
                 f.write(str(epoch))
             print('Saved')
