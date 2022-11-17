@@ -128,7 +128,7 @@ def main():
         C_cont = LatentContentClassifier(train_dataset.num_spk,hp.model.generator.content_encoder_channels[-1]).to(device)
         C_spk  = LatentSpeakerClassifier(train_dataset.num_spk,hp.model.generator.conditional_dim).to(device)
     
-    use_f0_est = False
+    use_f0_est = True
     if use_f0_est:
         f0_est = F0Estimator().to(device)
 
@@ -218,118 +218,125 @@ def main():
             signal_fake = G(signal_real,signal_tgt)
             
             #Discriminator training
-            #Real signal losses
-            out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src)
-            #print(out_adv)
-            #print(label_src.shape, out_cls_real_list[0].shape)
-            """
-            d_loss_cls_real = 0
-            for out_cls_real in out_cls_real_list:
-                #d_loss_cls_real += F.cross_entropy(out_cls_real, label_src)
-                d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-            """
-            #Fake signal losses
-            out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt)
-            """
-            d_loss_cls_fake = 0
-            for out_cls_fake in out_cls_fake_list:
-                d_loss_cls_fake += F.cross_entropy(out_cls_real, label_src)
-            """
-
-            #if hp.train.gan_loss == 'lsgan':
-            d_loss_adv_real = 0
-            d_loss_adv_fake = 0
-            for out_adv_fake, out_adv_real in zip(out_adv_fake_list,out_adv_real_list):
-                d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
-                d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
-            d_gan_loss = d_loss_adv_real + d_loss_adv_fake
-            
-            d_loss_cls_real = 0
-            d_loss_cls_fake = 0
-            for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
-                d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-                d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
-            d_loss_cls = d_loss_cls_real+d_loss_cls_fake
-            
-            
-            #Full loss
-            d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
-            #Optimize
-            optimizer_D.zero_grad()
-            d_loss.backward()
-            if hp.train.grad_max_norm_D is not None:
-                torch.nn.utils.clip_grad_norm_(D.parameters(),hp.train.grad_max_norm_D)
-            optimizer_D.step()
-
-            #Logging
-            loss['D_loss_adv_real'] = d_loss_adv_real.item()
-            loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
-            loss['D_loss_cls_real'] = d_loss_cls_real.item()
-            loss['D_loss_cls_fake'] = d_loss_cls_fake.item()
-            
-            #D_grad_norm = sum([param.grad.norm().item() for param in D.parameters()])
-            D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
-            loss['D_loss_grad_norm'] = D_grad_norm
-            
-            #Latent classifier step
-            if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
-                sig_cont_emb = G.content_embedding
-                out_lat_cont_cls = C_cont(sig_cont_emb)
-                c_cont_loss = F.cross_entropy(out_lat_cont_cls,label_src)
+            if iter_count % hp.train.n_D == 0:
                 
-                sig_spk_emb = G.speaker_embedding
-                out_lat_spk_cls = C_spk(sig_spk_emb)
-                c_spk_loss = F.cross_entropy(out_lat_spk_cls,label_tgt)
+                #Compute fake signal
+                signal_fake = G(signal_real,signal_tgt)
                 
-                c_loss = c_cont_loss + c_spk_loss
+                #Real signal losses
+                out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src)
+                #print(out_adv)
+                #print(label_src.shape, out_cls_real_list[0].shape)
+                """
+                d_loss_cls_real = 0
+                for out_cls_real in out_cls_real_list:
+                    #d_loss_cls_real += F.cross_entropy(out_cls_real, label_src)
+                    d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
+                """
+                #Fake signal losses
+                out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt)
+                """
+                d_loss_cls_fake = 0
+                for out_cls_fake in out_cls_fake_list:
+                    d_loss_cls_fake += F.cross_entropy(out_cls_real, label_src)
+                """
+    
+                #if hp.train.gan_loss == 'lsgan':
+                d_loss_adv_real = 0
+                d_loss_adv_fake = 0
+                for out_adv_fake, out_adv_real in zip(out_adv_fake_list,out_adv_real_list):
+                    d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
+                    d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
+                d_gan_loss = d_loss_adv_real + d_loss_adv_fake
                 
-                optimizer_C.zero_grad()
-                c_loss.backward()
-                optimizer_C.step()
-            
-                loss['C_cont_loss'] = c_cont_loss.item()
-                loss['C_cont_acc'] = torch.sum(torch.argmax(out_lat_cont_cls,dim=1) == label_src)/hp.train.batch_size
-                loss['C_spk_loss'] = c_spk_loss.item()
-                loss['C_spk_acc'] = torch.sum(torch.argmax(out_lat_spk_cls,dim=1) == label_tgt)/hp.train.batch_size
-            
-            
-            
-            #Train f0 estimator
-            if use_f0_est:
-                sig_real_f0_est, sig_real_voiced_est = f0_est(signal_real)
-                sig_real_f0_tgt = torchyin.estimate(signal_real.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-                sig_real_voiced_tgt = (sig_real_f0_tgt>0).type(sig_real_f0_tgt.dtype).to(device)
+                d_loss_cls_real = 0
+                d_loss_cls_fake = 0
+                for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
+                    d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
+                    d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
+                d_loss_cls = d_loss_cls_real+d_loss_cls_fake
                 
-                if (sig_real_f0_est>0).any():
-                    f0_loss = F.binary_cross_entropy(sig_real_voiced_est, sig_real_voiced_tgt) + \
-                              F.mse_loss(sig_real_f0_est[sig_real_f0_est>0],sig_real_f0_tgt[sig_real_f0_est>0])
-                else:
-                    f0_loss = F.binary_cross_entropy(sig_real_voiced_est, sig_real_voiced_tgt)
-                    with open(save_path /f'weird_signal-e{epoch}-i{i}','wb') as f:
-                        pickle.dump(signal_real,f)
-                         
-                optimizer_F0.zero_grad()
-                f0_loss.backward()
-                optimizer_F0.step()
                 
-                loss['F0_loss'] = f0_loss
-            
-            del out_adv_real_list, out_cls_real_list
-            del out_adv_fake_list, out_cls_fake_list, features_fake_list
-            del out_adv_fake, out_adv_real, d_gan_loss
-            del out_cls_real, out_cls_fake, d_loss_cls
-            del d_loss
-            if hp.train.lambda_latcls != 0:
-                del out_lat_cont_cls, out_lat_spk_cls, c_loss, c_cont_loss, c_spk_loss
-            
+                #Full loss
+                d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
+                #Optimize
+                optimizer_D.zero_grad()
+                d_loss.backward()
+                if hp.train.grad_max_norm_D is not None:
+                    torch.nn.utils.clip_grad_norm_(D.parameters(),hp.train.grad_max_norm_D)
+                optimizer_D.step()
+    
+                #Logging
+                loss['D_loss_adv_real'] = d_loss_adv_real.item()
+                loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
+                loss['D_loss_cls_real'] = d_loss_cls_real.item()
+                loss['D_loss_cls_fake'] = d_loss_cls_fake.item()
+                
+                #D_grad_norm = sum([param.grad.norm().item() for param in D.parameters()])
+                D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
+                loss['D_loss_grad_norm'] = D_grad_norm
+                
+                #Latent classifier step
+                if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
+                    sig_cont_emb = G.content_embedding
+                    out_lat_cont_cls = C_cont(sig_cont_emb)
+                    c_cont_loss = F.cross_entropy(out_lat_cont_cls,label_src)
+                    
+                    sig_spk_emb = G.speaker_embedding
+                    out_lat_spk_cls = C_spk(sig_spk_emb)
+                    c_spk_loss = F.cross_entropy(out_lat_spk_cls,label_tgt)
+                    
+                    c_loss = c_cont_loss + c_spk_loss
+                    
+                    optimizer_C.zero_grad()
+                    c_loss.backward()
+                    optimizer_C.step()
+                
+                    loss['C_cont_loss'] = c_cont_loss.item()
+                    loss['C_cont_acc'] = torch.sum(torch.argmax(out_lat_cont_cls,dim=1) == label_src)/hp.train.batch_size
+                    loss['C_spk_loss'] = c_spk_loss.item()
+                    loss['C_spk_acc'] = torch.sum(torch.argmax(out_lat_spk_cls,dim=1) == label_tgt)/hp.train.batch_size
+                
+                
+                
+                #Train f0 estimator
+                if use_f0_est:
+                    sig_real_f0_est, sig_real_voiced_est = f0_est(signal_real)
+                    sig_real_f0_tgt = torchyin.estimate(signal_real.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                    sig_real_voiced_tgt = (sig_real_f0_tgt>0).type(sig_real_f0_tgt.dtype).to(device)
+                    
+                    if (sig_real_f0_est>0).any():
+                        f0_loss = F.binary_cross_entropy(sig_real_voiced_est, sig_real_voiced_tgt) + \
+                                  F.mse_loss(sig_real_f0_est[sig_real_f0_est>0],sig_real_f0_tgt[sig_real_f0_est>0])
+                    else:
+                        f0_loss = F.binary_cross_entropy(sig_real_voiced_est, sig_real_voiced_tgt)
+                        with open(save_path /f'weird_signal-e{epoch}-i{i}','wb') as f:
+                            pickle.dump(signal_real,f)
+                             
+                    optimizer_F0.zero_grad()
+                    f0_loss.backward()
+                    optimizer_F0.step()
+                    
+                    loss['F0_loss'] = f0_loss
+                
+                del out_adv_real_list, out_cls_real_list
+                del out_adv_fake_list, out_cls_fake_list, features_fake_list
+                del out_adv_fake, out_adv_real, d_gan_loss
+                del out_cls_real, out_cls_fake, d_loss_cls
+                del d_loss
+                if hp.train.lambda_latcls != 0:
+                    del out_lat_cont_cls, out_lat_spk_cls, c_loss, c_cont_loss, c_spk_loss
+                
 
             #Generator training
-            if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
+            if iter_count % hp.train.n_G == 0: #N steps of D for each steap of G
 
                 #Fake signal losses
                 signal_fake = G(signal_real, signal_tgt)
                 sig_real_cont_emb = G.content_embedding.clone()
                 sig_real_spk_emb  = G.speaker_embedding.clone()
+                
+                _, _, features_real_list = D(signal_real,c_src)
                 out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt)
                 #if hp.train.gan_loss == 'lsgan':
                 g_loss_adv_fake = 0
@@ -402,37 +409,64 @@ def main():
                     
                 #F0 loss
                 if hp.train.lambda_f0 != 0:
-                    f0_tgt = torchyin.estimate(signal_tgt.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-                    #f0_conv, voiced_conv = f0_est(signal_fake)
+                    #f0_tgt = torchyin.estimate(signal_tgt.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                    f0_tgt, voiced_tgt = f0_est(signal_tgt)
+                    f0_src, voiced_src = f0_est(signal_real)
+                    
+                    '''
                     if epoch == start_epoch:
                         f0_tgt_mean = torch.sum((f0_tgt>0)*(f0_tgt), (-2,-1))/(torch.sum(f0_tgt>0, (-2,-1))+1e-6)
                         alpha = f0_Ns[label_tgt]/(f0_Ns[label_tgt]+1)
                         f0_means[label_tgt] = alpha*f0_Ns[label_tgt] + (1-alpha)*f0_tgt_mean.detach()
                         f0_Ns[label_tgt] = f0_Ns[label_tgt]+1
+                    '''
                     
-                    f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
-
-                    if True:
+                    #f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
+                    f0_conv, voiced_conv = f0_est(signal_fake)
+                    
+                    max_f0 = 400
+                    f0_tgt, f0_src, f0_conv = f0_tgt/max_f0, f0_src/max_f0, f0_conv/max_f0
+                    
+                    if False:
                         #g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[voiced_conv>.5],-1))
                         #g_loss_f0 = torch.pow(torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1) - torch.mean(torch.log(f0_conv[f0_conv>0]),-1), 2)
                         #g_loss_f0 = torch.pow(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[f0_conv>0],-1), 2)
-                        g_loss_f0 = torch.pow(torch.sum((f0_tgt>0)*(f0_tgt), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6) -
-                                              torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/(torch.sum(f0_conv>0, -1, keepdim=True)+1e-6),2)
+                        #g_loss_f0 = torch.pow(torch.sum((f0_tgt>0)*(f0_tgt), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6) -
+                        #                      torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/(torch.sum(f0_conv>0, -1, keepdim=True)+1e-6),2)
+                        g_loss_f0 = torch.pow(torch.sum((voiced_tgt>0.5)*(f0_tgt), -1, keepdim=True)/(torch.sum(voiced_tgt>0.5, -1, keepdim=True)+1e-6) -
+                                              torch.sum((voiced_conv>0.5)*(f0_conv), -1, keepdim=True)/(torch.sum(voiced_conv>0.5, -1, keepdim=True)+1e-6),2)
+                        g_loss_voiced = torch.mean(torch.pow(voiced_conv-voiced_src,2))
                         #g_loss_f0[g_loss_f0.isnan().detach()] = 0
-                        g_loss_f0 = torch.mean(g_loss_f0)
+                        g_loss_f0 = torch.mean(g_loss_f0) + g_loss_voiced
 
                     else:
-                        f0_src = torchyin.estimate(signal_real.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-                        #mu_tgt = torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1)
-                        #mu_src = torch.mean(torch.log(f0_src[f0_src>0]),-1)
+                        mu_tgt = torch.sum((voiced_tgt>0.5)*torch.log(torch.abs(f0_tgt)+1e-6), -1, keepdim=True)/(torch.sum(voiced_tgt>0.5, -1, keepdim=True)+1e-6)
+                        mu_src = torch.sum((voiced_src>0.5)*torch.log(torch.abs(f0_src)+1e-6), -1, keepdim=True)/(torch.sum(voiced_src>0.5, -1, keepdim=True)+1e-6)
                         #mu_tgt = torch.nanmean(torch.log(torch.where(f0_tgt>0, f0_tgt, torch.nan)),-1, keepdim=True)
                         #mu_src = torch.nanmean(torch.log(torch.where(f0_src>0, f0_src, torch.nan)),-1, keepdim=True)
-                        mu_conv = torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/torch.sum(f0_conv>0, -1, keepdim=True)
-                        mu_tgt = f0_means[label_tgt].view(mu_conv.shape)
+                        #mu_conv = torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/torch.sum(f0_conv>0, -1, keepdim=True)
+                        #mu_tgt = f0_means[label_tgt].view(mu_conv.shape)
                         
                         f0_conv_alt = torch.zeros(f0_src.shape).to(device)
-                        f0_conv_alt[f0_conv>0] = (f0_conv - mu_conv + mu_tgt)[f0_conv>0]
-                        g_loss_f0 = F.mse_loss(f0_conv[f0_conv>0],f0_conv_alt[f0_conv>0])
+                        f0_conv_alt[voiced_src>0.5] = torch.exp(torch.log(torch.abs(f0_src)+1e-6) - mu_src + mu_tgt)[voiced_src>0.5]
+                        g_loss_f0 = F.mse_loss(f0_conv[voiced_conv>0.5],f0_conv_alt[voiced_conv>0.5])
+                        if g_loss_f0 != g_loss_f0:
+                            print(mu_tgt.transpose(0,1))
+                            print(mu_src.transpose(0,1))
+                            print(f0_conv_alt[voiced_conv>0.5].shape)
+                            print((f0_conv_alt != f0_conv_alt).any())
+                            dump = {}
+                            dump['f0_tgt'] = f0_tgt
+                            dump['voicev_tgt'] = voiced_tgt
+                            dump['f0_src'] = f0_src
+                            dump['voiced_src'] = voiced_src
+                            dump['f0_conv'] = f0_conv
+                            dump['voicev_conv'] = voiced_conv
+                            dump['f0_conv_alt'] = f0_conv_alt
+                            with open(save_path / 'dump','wb') as f:
+                                pickle.dump(dump,f)
+                            raise Exception('NaN Error')
+                            
                 else:
                     g_loss_f0 = 0
                     
@@ -599,8 +633,8 @@ def main():
             if 'C_cont' in locals():
                 torch.save(C_cont.state_dict(), save_path / 'step{}-C_cont.pt'.format(epoch))
                 torch.save(C_cont.state_dict(), save_path / 'latest-C_cont.pt')
-                torch.save(C_cont.state_dict(), save_path / 'step{}-C_spk.pt'.format(epoch))
-                torch.save(C_cont.state_dict(), save_path / 'latest-C_spk.pt')
+                torch.save(C_spk.state_dict(), save_path / 'step{}-C_spk.pt'.format(epoch))
+                torch.save(C_spk.state_dict(), save_path / 'latest-C_spk.pt')
 
             if use_f0_est:
                 torch.save(f0_est.state_dict(), save_path / 'step{}-F0.pt'.format(epoch))
