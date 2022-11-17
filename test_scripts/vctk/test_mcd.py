@@ -66,13 +66,21 @@ def mfcc_dist(test_file, ref_file, sr=16000):
         ref_mceps[ref_file] = (ref_mcep, ref_f0)
 
     (dist, path) = fastdtw(test_mcep, ref_mcep, dist=2)
-    diff_f0_mean = np.mean(np.log(test_f0[test_f0 > 0])) - np.mean(np.log(ref_f0[ref_f0 > 0]))
-    diff_f0_var = np.log(np.var(test_f0[test_f0 > 0])) - np.log(np.var(ref_f0[ref_f0 > 0]))
-    
-    if len(path) == 0:
+    if len(path) > 0:
+        dist = dist/len(path)
+    else:
         print("Error: 0 len path with files:", test_file,ref_file)
+        dist = 0
         
-    return dist/len(path), diff_f0_mean, diff_f0_var
+    if (test_f0 > 0).any():
+        diff_f0_mean = np.mean(np.log(test_f0[test_f0 > 0])) - np.mean(np.log(ref_f0[ref_f0 > 0]))
+        diff_f0_var = np.log(np.var(test_f0[test_f0 > 0])) - np.log(np.var(ref_f0[ref_f0 > 0]))
+    else:
+        print("Error: No voiced frames in file:", test_file)
+        diff_f0_mean = 0
+        diff_f0_var = 0
+    
+    return dist, diff_f0_mean, diff_f0_var
 
 def f0_ratio(test_file, ref_file, sr=16000):
     
@@ -153,6 +161,8 @@ def main():
             #print(src_file, tgt_file, conv_file)
             
             mcd_result, diff_f0_mean, diff_f0_var = mfcc_dist(conv_file,tgt_file)
+            #if mcd_result == 0 or (diff_f0_mean == 0 and  diff_f0_var == 0):
+            #continue
             results['mcd_result_conv'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(mcd_result)
             results['diff_f0_mean'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(diff_f0_mean)
             results['diff_f0_var'].setdefault(src_spk,{}).setdefault(tgt_spk,[]).append(diff_f0_var)
