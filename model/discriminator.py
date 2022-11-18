@@ -1,6 +1,10 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+from util.filtered_lrelu import FilteredLReLU
 
 class Discriminator(nn.Module):
     def __init__(self, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4, conditional_dim=32, conditional='both'):
@@ -15,7 +19,7 @@ class Discriminator(nn.Module):
         self.discriminator += [nn.Sequential(normalization(nn.Conv1d(1,num_channels_base,
                                                                      kernel_size=15,
                                                                      padding=7,padding_mode='reflect')),
-                                             nn.LeakyReLU(leaky_relu_slope, inplace=True))]
+                                             FilteredLReLU(leaky_relu_slope))]
         nf = num_channels_base
         for i in range(num_layers):
             nf_prev = nf
@@ -23,14 +27,16 @@ class Discriminator(nn.Module):
             
             self.discriminator += [nn.Sequential(normalization(nn.Conv1d(nf_prev,nf,
                                                                          kernel_size=downsampling_factor*10+1,
-                                                                         stride=downsampling_factor,
+                                                                         stride=1,
                                                                          padding=downsampling_factor*5,
                                                                          groups=nf_prev)),
-                                                 nn.LeakyReLU(leaky_relu_slope, inplace=True))]
+                                                 FilteredLReLU(leaky_relu_slope,
+                                                               up_factor=2, dn_factor=2*downsampling_factor, 
+                                                               up_fc=0.5, dn_fc=1/(2*downsampling_factor)))]
         self.discriminator += [nn.Sequential(normalization(nn.Conv1d(nf,nf,
                                                                      kernel_size=5,
                                                                      padding=2)),
-                                             nn.LeakyReLU(leaky_relu_slope, inplace=True))]
+                                             FilteredLReLU(leaky_relu_slope))]
 
         self.output_adversarial = normalization(nn.Conv1d(nf,1, kernel_size=3, stride=1, padding=1, bias=False))
         #self.output_classification = normalization(nn.Conv1d(nf,num_classes, kernel_size=3, stride=1, padding=1, bias=False))
@@ -69,8 +75,19 @@ class MultiscaleDiscriminator(nn.Module):
         for i in range(num_disc):
             self.discriminators += [Discriminator(num_classes, num_layers, num_channels_base, num_channel_mult, downsampling_factor, conditional_dim, conditional)]
         
-        self.pooling = nn.AvgPool1d(kernel_size=4, stride=2, padding=1, count_include_pad=False)
+        #self.pooling = nn.AvgPool1d(kernel_size=4, stride=2, padding=1, count_include_pad=False)
         
+        #Kaiser filter
+        L = 32
+        n = torch.arange(-L//2, L//2+1).float()
+        f = torch.sin(math.pi*0.5*n)/(math.pi*n + 1e-8)
+        f[n.shape[0]//2] = 0.5
+        f = f*torch.kaiser_window(L+1, False, 2.5)
+        f = f/torch.sum(f)
+        f = f.view(1,1,-1)
+        self.L = L
+        
+        self.register_buffer('down_filter', f, persistent=False)
 
         
     def forward(self,x,c_tgt, c_src=None):
@@ -78,7 +95,9 @@ class MultiscaleDiscriminator(nn.Module):
         
         for disc in self.discriminators:
             ret.append(disc(x,c_tgt, c_src))
-            x = self.pooling(x)
+            x = F.conv1d(x, self.down_filter, 
+                         stride=2, 
+                         padding=self.L)
             
         out_adv, out_cls, features = zip(*ret)
         return list(out_adv), list(out_cls), list(features)

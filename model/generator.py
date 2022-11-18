@@ -3,57 +3,22 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import util
+from util.filtered_lrelu import FilteredLReLU
 from model.conditional_instance_norm import ConditionalInstanceNorm
 
-class DecoderResnetBlock(nn.Module):
-    def __init__(self, n_channel, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2):
-        super().__init__()
-        normalization = nn.utils.weight_norm
-        self.block = nn.Sequential(
-                nn.LeakyReLU(leaky_relu_slope),
-                normalization(nn.Conv1d(n_channel,n_channel,
-                                        kernel_size=kernel_size, 
-                                        dilation=dilation,
-                                        padding=dilation,padding_mode='reflect')),
-                nn.LeakyReLU(leaky_relu_slope),
-                normalization(nn.Conv1d(n_channel,n_channel,kernel_size=1)))
-        self.shortcut = normalization(nn.Conv1d(n_channel,n_channel,kernel_size=1))
 
-    def forward(self,x):
-        return self.block(x) + self.shortcut(x)
-    
-#ResNet block from StarGAn. Main diff is relu-conv-norm order
-class TranformResnetBlock(nn.Module):
-    def __init__(self, n_channel, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2, norm_layer=nn.InstanceNorm1d):
-        super().__init__()
-        self.block = nn.Sequential(
-                nn.LeakyReLU(leaky_relu_slope),
-                nn.Conv1d(n_channel,n_channel,
-                          kernel_size=kernel_size, 
-                          dilation=dilation,
-                          padding=dilation,padding_mode='reflect'),
-                norm_layer(n_channel),
-                nn.LeakyReLU(leaky_relu_slope),
-                nn.Conv1d(n_channel,n_channel,
-                           kernel_size=1),
-                norm_layer(n_channel))
-        self.shortcut = nn.Conv1d(n_channel,n_channel, kernel_size=1)
-    
-    def forward(self,x):
-        return self.block(x) + self.shortcut(x)
-    
 class ResnetBlock(nn.Module):
     def __init__(self, n_channel, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2, norm_layer=nn.InstanceNorm1d, weight_norm = lambda x: x):
         super().__init__()
         self.block = nn.Sequential(
                 norm_layer(n_channel),
-                nn.LeakyReLU(leaky_relu_slope),
+                FilteredLReLU(leaky_relu_slope),
                 weight_norm(nn.Conv1d(n_channel,n_channel,
                                       kernel_size=kernel_size, 
                                       dilation=dilation,
                                       padding=dilation,padding_mode='reflect')),
                 norm_layer(n_channel),
-                nn.LeakyReLU(leaky_relu_slope),
+                FilteredLReLU(leaky_relu_slope),
                 weight_norm(nn.Conv1d(n_channel,n_channel,
                                       kernel_size=1))
                 )
@@ -67,13 +32,13 @@ class CINResnetBlock(nn.Module):
         super().__init__()
         self.block = nn.ModuleList([
                 ConditionalInstanceNorm(n_channel, n_cond),
-                nn.LeakyReLU(leaky_relu_slope),
+                FilteredLReLU(leaky_relu_slope),
                 nn.Conv1d(n_channel,n_channel,
                           kernel_size=kernel_size, 
                           dilation=dilation,
                           padding=dilation,padding_mode='reflect'),
                 ConditionalInstanceNorm(n_channel, n_cond),
-                nn.LeakyReLU(leaky_relu_slope),
+                FilteredLReLU(leaky_relu_slope),
                 nn.Conv1d(n_channel,n_channel,
                            kernel_size=1)]
                 )
@@ -113,7 +78,7 @@ class Encoder(nn.Module):
     
         for i,r in enumerate(downsample_ratios):
             model += [norm_layer(channel_sizes[i]) if not self.cin else norm_layer(channel_sizes[i], conditional_dim),
-                      nn.LeakyReLU(leaky_relu_slope),
+                      FilteredLReLU(leaky_relu_slope),
                       weight_norm(nn.Conv1d(channel_sizes[i], channel_sizes[i+1],
                                          kernel_size = 2*r,
                                          stride = r,
@@ -167,7 +132,7 @@ class Decoder(nn.Module):
         
         for i,r in enumerate(upsample_ratios):
             model += [norm_layer(channel_sizes[i]) if not self.cin else norm_layer(channel_sizes[i], conditional_dim),
-                      nn.LeakyReLU(leaky_relu_slope),
+                      FilteredLReLU(leaky_relu_slope),
                       weight_norm(nn.ConvTranspose1d(channel_sizes[i], channel_sizes[i+1],
                                                      kernel_size = 2*r,
                                                      stride = r,
@@ -184,7 +149,7 @@ class Decoder(nn.Module):
                                              leaky_relu_slope=leaky_relu_slope)]
         
         model += [norm_layer(channel_sizes[-1]) if not self.cin else norm_layer(channel_sizes[-1], conditional_dim),
-                  nn.LeakyReLU(leaky_relu_slope),
+                  FilteredLReLU(leaky_relu_slope),
                   weight_norm(nn.Conv1d(channel_sizes[-1],1,
                                         kernel_size=7, padding=3,
                                         padding_mode='reflect')),
