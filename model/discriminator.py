@@ -25,7 +25,7 @@ class Discriminator(nn.Module):
                                                                          kernel_size=downsampling_factor*10+1,
                                                                          stride=downsampling_factor,
                                                                          padding=downsampling_factor*5,
-                                                                         groups=nf_prev)),
+                                                                         groups=nf_prev // 4)),
                                                  nn.LeakyReLU(leaky_relu_slope, inplace=True))]
         self.discriminator += [nn.Sequential(normalization(nn.Conv1d(nf,nf,
                                                                      kernel_size=5,
