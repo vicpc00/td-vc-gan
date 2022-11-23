@@ -13,6 +13,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+import util
 import util.yin as torchyin
 
 import torch.utils.tensorboard as tensorboard
@@ -181,6 +182,7 @@ def main():
             c_src = label2onehot(label_src,train_dataset.num_spk)
             if hp.train.no_conv:
                 label_tgt = label_src
+                signal_real_tgt = signal_real
             else:
                 if need_target_signal:
                     perm = np.random.permutation(hp.train.batch_size)
@@ -189,6 +191,9 @@ def main():
                     #Random target label
                     label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
             c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
+            
+            f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+            c_f0 = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
 
             #Send everything to device
             signal_real = signal_real.to(device)
@@ -200,7 +205,7 @@ def main():
                 signal_real_tgt = signal_real_tgt.to(device)
 
             #Compute fake signal
-            signal_fake = G(signal_real,c_tgt,c_src)
+            signal_fake = G(signal_real,c_tgt, c_var = c_f0)
             
             #Discriminator training
             #Real signal losses
@@ -304,7 +309,7 @@ def main():
             if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
 
                 #Fake signal losses
-                signal_fake = G(signal_real,c_tgt,c_src)
+                signal_fake = G(signal_real,c_tgt,c_var = c_f0)
                 sig_real_cont_emb = G.content_embedding.clone()
                 out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt,c_src)
                 #if hp.train.gan_loss == 'lsgan':
@@ -373,6 +378,8 @@ def main():
                     
                     f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
 
+                    f0_src, f0_tgt, f0_conv = f0_src/400, f0_tgt/400, f0_conv/400
+
                     if False:
                         #g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[voiced_conv>.5],-1))
                         #g_loss_f0 = torch.pow(torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1) - torch.mean(torch.log(f0_conv[f0_conv>0]),-1), 2)
@@ -383,7 +390,7 @@ def main():
                         g_loss_f0 = torch.mean(g_loss_f0)
 
                     else:
-                        f0_src = torchyin.estimate(signal_real.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                        #f0_src = torchyin.estimate(signal_real.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
                         #mu_tgt = torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1)
                         #mu_src = torch.mean(torch.log(f0_src[f0_src>0]),-1)
                         #mu_tgt = torch.nanmean(torch.log(torch.where(f0_tgt>0, f0_tgt, torch.nan)),-1, keepdim=True)
@@ -391,9 +398,14 @@ def main():
                         mu_conv = torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/torch.sum(f0_conv>0, -1, keepdim=True)
                         mu_tgt = f0_means[label_tgt].view(mu_conv.shape)
                         
-                        f0_conv_alt = torch.zeros(f0_src.shape).to(device)
-                        f0_conv_alt[f0_conv>0] = (f0_conv - mu_conv + mu_tgt)[f0_conv>0]
-                        g_loss_f0 = F.mse_loss(f0_conv[f0_conv>0],f0_conv_alt[f0_conv>0])
+                        #f0_conv_alt = torch.zeros(f0_src.shape).to(device)
+                        #f0_conv_alt[f0_conv>0] = (f0_conv - mu_conv + mu_tgt)[f0_conv>0]
+                        
+                        f0_conv_tgt = f0_src
+                        
+                        #g_loss_f0 = F.mse_loss(f0_conv[f0_conv>0],f0_conv_alt[f0_conv>0])
+                        g_loss_f0 = F.mse_loss(f0_conv,f0_conv_tgt)
+                        
                 else:
                     g_loss_f0 = 0
                     
@@ -462,6 +474,7 @@ def main():
                     print(', {}: {:.4f}'.format(label, value),end='')
                 print()
             iter_count += 1
+            
         if epoch % hp.log.val_interval == 0:
             print('Validation loop')
             G.eval()
@@ -477,6 +490,9 @@ def main():
                         #Random target label
                         label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
                     c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
+                    
+                    f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                    c_f0 = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
         
                     #Send everything to device
                     signal_real = signal_real.to(device)
@@ -486,7 +502,7 @@ def main():
                     c_tgt = c_tgt.to(device)
                     
                     #Compute fake signal
-                    signal_fake = G(signal_real,c_tgt,c_src)
+                    signal_fake = G(signal_real,c_tgt,c_var = c_f0)
                     #Real signal losses
                     out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
                     #Fake signal losses
@@ -568,14 +584,17 @@ def main():
                 label_tgt = label_src if hp.train.no_conv else torch.randint(train_dataset.num_spk,label_src.shape)
                 c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
                 
+                f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                c_f0 = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
+                
                 signal_real = signal_real.to(device)
                 label_src = label_src.item()
                 label_tgt = label_tgt.item()
                 c_src = c_src.to(device)
                 c_tgt = c_tgt.to(device)
                 
-                signal_fake = G(signal_real,c_tgt,c_src)
-                signal_rec = G(signal_fake,c_src,c_tgt)
+                signal_fake = G(signal_real,c_tgt,c_var = c_f0)
+                signal_rec = G(signal_fake,c_src,c_var = c_f0)
                 
                 signal_real = signal_real.squeeze().cpu().detach().numpy()
                 signal_fake = signal_fake.squeeze().cpu().detach().numpy()
