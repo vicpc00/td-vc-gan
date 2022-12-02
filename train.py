@@ -193,7 +193,20 @@ def main():
             c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
             
             f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-            c_f0 = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
+            if hp.train.no_conv:
+                f0_conv_tgt = f0_src
+            else:
+                f0_tgt = f0_src[perm]
+                
+                mu_tgt = torch.sum((f0_tgt>0)*torch.log(f0_tgt+1e-6), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6)
+                mu_src = torch.sum((f0_src>0)*torch.log(f0_src+1e-6), -1, keepdim=True)/(torch.sum(f0_src>0, -1, keepdim=True)+1e-6)
+                
+                f0_conv_tgt = torch.zeros(f0_src.shape).to(device)
+                f0_conv_tgt[f0_src>0] = torch.exp(torch.log(f0_src+1e-6) + mu_tgt - mu_src)[f0_src>0]
+                
+                
+            c_f0_conv = util.f0_to_excitation(f0_conv_tgt, 64, sampling_rate=hp.model.sample_rate)
+            c_f0_src = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
 
             #Send everything to device
             signal_real = signal_real.to(device)
@@ -205,7 +218,7 @@ def main():
                 signal_real_tgt = signal_real_tgt.to(device)
 
             #Compute fake signal
-            signal_fake = G(signal_real,c_tgt, c_var = c_f0)
+            signal_fake = G(signal_real,c_tgt, c_var = c_f0_conv)
             
             #Discriminator training
             #Real signal losses
@@ -309,7 +322,7 @@ def main():
             if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
 
                 #Fake signal losses
-                signal_fake = G(signal_real,c_tgt,c_var = c_f0)
+                signal_fake = G(signal_real,c_tgt,c_var = c_f0_conv)
                 sig_real_cont_emb = G.content_embedding.clone()
                 out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt,c_src)
                 #if hp.train.gan_loss == 'lsgan':
@@ -322,7 +335,7 @@ def main():
                     
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec = G(signal_fake, c_src, c_tgt)
+                    signal_rec = G(signal_fake, c_src, c_var = c_f0_src)
                     if hp.train.rec_loss == 'feat':
                         _, _, features_rec_list = D(signal_rec,c_src,c_tgt)
                         g_loss_rec = 0
@@ -345,7 +358,7 @@ def main():
                 #Identity loss
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
-                        signal_idt = G(signal_real, c_src, c_src)
+                        signal_idt = G(signal_real, c_src, c_var = c_f0_src)
                     else:
                         signal_idt = signal_fake
                     if hp.train.rec_loss == 'feat':
@@ -368,7 +381,7 @@ def main():
                     
                 #F0 loss
                 if hp.train.lambda_f0 != 0:
-                    f0_tgt = torchyin.estimate(signal_real_tgt.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                    #f0_tgt = torchyin.estimate(signal_real_tgt.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
                     #f0_conv, voiced_conv = f0_est(signal_fake)
                     if epoch == start_epoch:
                         f0_tgt_mean = torch.sum((f0_tgt>0)*(f0_tgt), (-2,-1))/(torch.sum(f0_tgt>0, (-2,-1))+1e-6)
@@ -378,7 +391,7 @@ def main():
                     
                     f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
 
-                    f0_src, f0_tgt, f0_conv = f0_src/400, f0_tgt/400, f0_conv/400
+                    f0_src, f0_tgt, f0_conv, f0_conv_tgt = f0_src/400, f0_tgt/400, f0_conv/400, f0_conv_tgt/400
 
                     if False:
                         #g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[voiced_conv>.5],-1))
@@ -395,13 +408,13 @@ def main():
                         #mu_src = torch.mean(torch.log(f0_src[f0_src>0]),-1)
                         #mu_tgt = torch.nanmean(torch.log(torch.where(f0_tgt>0, f0_tgt, torch.nan)),-1, keepdim=True)
                         #mu_src = torch.nanmean(torch.log(torch.where(f0_src>0, f0_src, torch.nan)),-1, keepdim=True)
-                        mu_conv = torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/torch.sum(f0_conv>0, -1, keepdim=True)
-                        mu_tgt = f0_means[label_tgt].view(mu_conv.shape)
+                        #mu_conv = torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/torch.sum(f0_conv>0, -1, keepdim=True)
+                        #mu_tgt = f0_means[label_tgt].view(mu_conv.shape)
                         
                         #f0_conv_alt = torch.zeros(f0_src.shape).to(device)
                         #f0_conv_alt[f0_conv>0] = (f0_conv - mu_conv + mu_tgt)[f0_conv>0]
                         
-                        f0_conv_tgt = f0_src
+                        #f0_conv_tgt = f0_src
                         
                         #g_loss_f0 = F.mse_loss(f0_conv[f0_conv>0],f0_conv_alt[f0_conv>0])
                         g_loss_f0 = F.mse_loss(f0_conv,f0_conv_tgt)
@@ -474,6 +487,7 @@ def main():
                     print(', {}: {:.4f}'.format(label, value),end='')
                 print()
             iter_count += 1
+            #break
             
         if epoch % hp.log.val_interval == 0:
             print('Validation loop')
@@ -546,6 +560,7 @@ def main():
                     loss['val_D_loss'] = loss.setdefault('val_D_loss',0) + d_loss.item()
                     loss['val_G_loss'] = loss.setdefault('val_G_loss',0) + g_loss.item()
                     loss['val_C_acc'] = loss.setdefault('val_C_acc',0) + c_acc.item()
+                    #break
                     
             print('Val Epoch {}/{}, Itt {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
             for label, value in loss.items():
@@ -575,6 +590,8 @@ def main():
         #Gen exemples
         if epoch % hp.log.gen_interval == 0:
             print('Saving signals')
+            f0_ratios = torch.rand(hp.log.gen_num)*1.5 + 0.5
+            f0_ratios[0] = 1
             for i, data in enumerate(test_data_loader):
                 if i >= hp.log.gen_num:
                     break
@@ -585,7 +602,7 @@ def main():
                 c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
                 
                 f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-                c_f0 = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
+                c_f0 = util.f0_to_excitation(f0_src*f0_ratios[i], 64, sampling_rate=hp.model.sample_rate)
                 
                 signal_real = signal_real.to(device)
                 label_src = label_src.item()
@@ -600,7 +617,7 @@ def main():
                 signal_fake = signal_fake.squeeze().cpu().detach().numpy()
                 signal_rec  = signal_rec.squeeze().cpu().detach().numpy()
                 
-                sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_conv.wav'.format(epoch,i,label_src,label_tgt),signal_fake,hp.model.sample_rate)
+                sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_conv_r={:.2f}.wav'.format(epoch,i,label_src,label_tgt, f0_ratios[i]),signal_fake,hp.model.sample_rate)
                 sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_orig.wav'.format(epoch,i,label_src,label_tgt),signal_real,hp.model.sample_rate)
                 sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_rec.wav'.format(epoch,i,label_src,label_tgt),signal_rec,hp.model.sample_rate)
 
