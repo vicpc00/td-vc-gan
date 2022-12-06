@@ -11,7 +11,7 @@ device=$3
 scrip_dir=test_scripts/vctk
 mosnet_dir=../MOSNet
 
-CUDA_VISIBLE_DEVICES=$device python generate_from_dataset.py --save_path $out_dir/signals/ --load_path $model_dir --data_path datasets/vctk/ --data_file test_files_mcd --epoch $epoch
+CUDA_VISIBLE_DEVICES=$device python generate_with_target.py --save_path $out_dir/signals/ --load_path $model_dir --data_path datasets/vctk/ --data_file test_files_mcd --epoch $epoch
 
 cp $model_dir/config.yaml $out_dir
 cp $model_dir/githash $out_dir
