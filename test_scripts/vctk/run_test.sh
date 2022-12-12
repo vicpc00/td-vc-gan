@@ -1,4 +1,4 @@
-#while [ $(basename &(pwd)) -neq td-stargan-vc ]; do cd ..; done
+#! /bin/bash
 
 echo $0 $1 $2 $3
 
@@ -21,7 +21,10 @@ python $scrip_dir/test_mcd.py --test_path $out_dir/signals/ --save_file $out_dir
 
 CUDA_VISIBLE_DEVICES=$device python $scrip_dir/test_speaker_rec.py --test_path $out_dir/signals/ --save_file $out_dir/spkrec_results --speechbrain_hparam $scrip_dir/speechbrain_model/sb_classifier_hparams.yaml
 
+source ~/miniconda3/etc/profile.d/conda.sh
+conda activate mosnet
 CUDA_VISIBLE_DEVICES=$device python $mosnet_dir/custom_test.py --pretrained_model $mosnet_dir/output/mosnet.h5 --rootdir $out_dir/signals/
+conda deactivate
 mv $out_dir/signals/MOSnet_result_raw.txt $out_dir/mosnet_result_raw.txt
 python $scrip_dir/test_mosnet.py --test_path $out_dir/mosnet_result_raw.txt --save_file $out_dir/mosnet_results
 

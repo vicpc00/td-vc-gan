@@ -217,13 +217,14 @@ class Discriminator_old(nn.Module):
         self.output_adversarial = normalization(nn.Conv1d(nf,1, kernel_size=3, stride=1, padding=1, bias=False))
         #self.output_classification = normalization(nn.Conv1d(nf,num_classes, kernel_size=3, stride=1, padding=1, bias=False))
         self.output_classification = normalization(nn.Conv1d(nf,conditional_dim, kernel_size=3, stride=1, padding=1, bias=False))
+        self.conditional = conditional
         if conditional=='both':
             self.embedding = nn.Linear(2*num_classes, conditional_dim)
         else:
             self.embedding = nn.Linear(num_classes, conditional_dim)
         
     def forward(self,x,c_tgt, c_src=None):
-        if c_src != None:
+        if self.conditional=='both':
             c = self.embedding(torch.cat((c_tgt, c_src),dim=1))
         else:
             c = self.embedding(c_tgt)
@@ -241,3 +242,4 @@ class Discriminator_old(nn.Module):
         out_cls = torch.mean(c*out_cls,dim=1).unsqueeze(1)
         
         return out_adv, out_cls, features
+
