@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -71,14 +73,28 @@ class MultiscaleDiscriminator(nn.Module):
         
         self.pooling = nn.AvgPool1d(kernel_size=4, stride=2, padding=1, count_include_pad=False)
         
-
+        #Kaiser filter
+        L = 32
+        n = torch.arange(-L//2, L//2+1).float()
+        f = torch.sin(math.pi*0.5*n)/(math.pi*n + 1e-8)
+        f[n.shape[0]//2] = 0.5
+        f = f*torch.kaiser_window(L+1, False, 2.5)
+        f = f/torch.sum(f)
+        f = f.view(1,1,-1)
+        self.L = L
         
+        self.register_buffer('down_filter', f, persistent=False)
+
     def forward(self,x,c_tgt, c_src=None):
         ret = []
         
         for disc in self.discriminators:
             ret.append(disc(x,c_tgt, c_src))
-            x = self.pooling(x)
+            #x = self.pooling(x)
+            x = F.conv1d(x, self.down_filter, 
+                         stride=2, 
+                         padding=self.L)
+
             
         out_adv, out_cls, features = zip(*ret)
         return list(out_adv), list(out_cls), list(features)
