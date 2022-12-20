@@ -19,6 +19,7 @@ from model.discriminator import MultiscaleDiscriminator
 from model.latent_classifier import LatentClassifier
 import data.dataset as dataset
 
+import util
 from util.hparams import HParam
 
 def label2onehot(labels, n_classes):
@@ -39,6 +40,20 @@ def parse_args():
     parser.add_argument('--epoch', default=None)
     args = parser.parse_args()
     return args
+
+def load_model(model, path):
+    state_dict = torch.load(path, map_location=lambda storage, loc: storage)
+    try:
+        model.load_state_dict(state_dict)
+    except RuntimeError:
+        print(f'Warning: default loading for {path} failed. Trying permisive load')
+        messages = util.load_possible(model, state_dict)
+        for msg_type in messages:
+            if msg_type in ['matched']:
+                continue
+            for msg in messages[msg_type]:
+                print(f'{msg_type}: {msg}')
+        
 
 #Random seed updater for workers. 
 #See https://tanelp.github.io/posts/a-bug-that-plagues-thousands-of-open-source-ml-projects/
@@ -106,7 +121,7 @@ def main():
                   norm_layer = (nl.bottleneck, nl.encoder, nl.decoder),
                   weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
                   bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder,
-                  output_content_emb = latent_classier).to(device)
+                  output_content_emb = latent_classier)
     D = MultiscaleDiscriminator(hp.model.discriminator.num_disc,
                                 train_dataset.num_spk,
                                 hp.model.discriminator.num_layers,
@@ -114,10 +129,10 @@ def main():
                                 hp.model.discriminator.num_channel_mult,
                                 hp.model.discriminator.downsampling_factor,
                                 hp.model.discriminator.conditional_dim,
-                                hp.model.discriminator.conditional_spks).to(device)
+                                hp.model.discriminator.conditional_spks)
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
-        C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0]).to(device)
+        C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0])
 
     
     if load_path != None:
@@ -133,13 +148,21 @@ def main():
             """
             
         print('Loading from {}'.format(load_path / '{}-G.pt'.format(load_file_base)))
-        G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
-        D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        load_model(G, load_path / '{}-G.pt'.format(load_file_base))
+        load_model(D, load_path / '{}-D.pt'.format(load_file_base))
+        #G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        #D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
 
         if 'C' in locals() and os.path.exists(load_path / '{}-C.pt'.format(load_file_base)):
-            C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+            load_model(C, load_path / '{}-C.pt'.format(load_file_base))
+            #C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+            C.to(device)
     else:
         start_epoch = 0
+        
+    #Send models to device
+    G.to(device)
+    D.to(device)
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
     optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
