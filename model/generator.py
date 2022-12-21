@@ -57,7 +57,8 @@ class ResnetBlock(nn.Module):
                 weight_norm(nn.Conv1d(n_channel,n_channel,
                                       kernel_size=1))
                 )
-        self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
+        #self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
+        self.shortcut = lambda x: x
     
     def forward(self,x):
         return self.block(x) + self.shortcut(x)
@@ -77,7 +78,8 @@ class CINResnetBlock(nn.Module):
                 nn.Conv1d(n_channel,n_channel,
                            kernel_size=1)]
                 )
-        self.shortcut = nn.Conv1d(n_channel,n_channel, kernel_size=1)
+        #self.shortcut = nn.Conv1d(n_channel,n_channel, kernel_size=1)
+        self.shortcut = lambda x: x
         
     def _residual(self,x,c):
         for m in self.block:
