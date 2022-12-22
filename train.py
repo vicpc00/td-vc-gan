@@ -15,6 +15,7 @@ import numpy as np
 
 import util
 import util.yin as torchyin
+import util.crepe
 
 import torch.utils.tensorboard as tensorboard
 
