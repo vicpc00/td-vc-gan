@@ -7,13 +7,14 @@ fmin = 50
 fmax = 550
 
 sr = 16000
-hop_length = sr//128
+hop_length = 64
 
 model = 'tiny'
 
 batch_size = None
 
-decoder = crepe.decode.viterbi
+#decoder = crepe.decode.viterbi
+decoder = crepe.decode.argmax
 
 silence_tresh = -60. #dB
 periodicity_tresh = .21
@@ -23,14 +24,17 @@ crepe.UNVOICED = 0.
 def filtered_pitch(signal):
     
     device = signal.device
+    
     if signal.ndim == 3:
-        signal.squeeze(1)
+        squeezed = True
+        signal = signal.squeeze(1)
     
     batches = crepe.preprocess(signal,
                                sample_rate = sr,
                                hop_length = hop_length,
                                batch_size = batch_size,
-                               device = device)
+                               device = device,
+                               pad = True)
     
     activations_list = []
     pitches_list = []
@@ -59,18 +63,19 @@ def filtered_pitch(signal):
     
     #Filtering pitch
     with torch.no_grad():
-        periodicities = crepe.filter.median(periodicities, 3)
-        periodicities = crepe.threshold.Silence(silence_tresh)(periodicities,
-                                                               signal, sr, hop_length)
+        #periodicities = crepe.filter.median(periodicities, 3)
+        if signal.shape[0] == 1:
+            periodicities = crepe.threshold.Silence(silence_tresh)(periodicities,
+                                                                   signal, sr, hop_length)
         
         pitches = crepe.threshold.At(periodicity_tresh)(pitches, periodicities)
-        
+    
+    if squeezed:
+        pitches = pitches.unsqueeze(1)
+    pitches = pitches[:,:,:-1].clone()
     return pitches, activations
         
         
 def get_shift(pitch_source, pitch_target):
-    return crepe.convert.frequency_to_bins(pitch_target) - crepe.convert.frequency_to_bins(pitch_souce)
-
-
-
+    return crepe.convert.frequency_to_bins(pitch_target) - crepe.convert.frequency_to_bins(pitch_source)
 

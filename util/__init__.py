@@ -17,10 +17,8 @@ def get_weight_norm(norm):
     if norm == 'weight_norm':
         return nn.utils.weight_norm
     
-def f0_to_excitation(f0, step_size, sampling_rate=16000):
-    
-    linear = True
-    
+def f0_to_excitation(f0, step_size, sampling_rate=16000, linear=True):
+        
     sin_gain = 0.1
     noise_std = 0.003
     noise_gain = sin_gain/(3*noise_std)
@@ -48,3 +46,21 @@ def f0_to_excitation(f0, step_size, sampling_rate=16000):
     
     return excitation
             
+def roll_batches(input, shifts, dim):
+    
+    repeat = [d if i != dim else 1 for i,d in enumerate(input.shape)]
+    view = [1 if i != dim else -1 for i in range(input.ndim)]
+    
+    idx = torch.arange(input.shape[dim], device=input.device).view(view).repeat(repeat)
+    
+    view = [1 if i != 0 else -1 for i in range(input.ndim)]
+    
+    idx = (idx - shifts.view(view)) % input.shape[dim]
+    
+    return torch.gather(input, dim, idx)
+    
+    
+    
+    
+    
+    

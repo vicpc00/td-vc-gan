@@ -27,6 +27,10 @@ import data.dataset as dataset
 
 from util.hparams import HParam
 
+torch.autograd.set_detect_anomaly(False)
+
+import timeit
+
 def label2onehot(labels, n_classes):
     #labels: (batch_size,)
     batch_size = labels.size(0)
@@ -193,22 +197,6 @@ def main():
                     label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
             c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
             
-            f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-            if hp.train.no_conv:
-                f0_conv_tgt = f0_src
-            else:
-                f0_tgt = f0_src[perm]
-                
-                mu_tgt = torch.sum((f0_tgt>0)*torch.log(f0_tgt+1e-6), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6)
-                mu_src = torch.sum((f0_src>0)*torch.log(f0_src+1e-6), -1, keepdim=True)/(torch.sum(f0_src>0, -1, keepdim=True)+1e-6)
-                
-                f0_conv_tgt = torch.zeros(f0_src.shape).to(device)
-                f0_conv_tgt[f0_src>0] = torch.exp(torch.log(f0_src+1e-6) + mu_tgt - mu_src)[f0_src>0]
-                
-                
-            c_f0_conv = util.f0_to_excitation(f0_conv_tgt, 64, sampling_rate=hp.model.sample_rate)
-            c_f0_src = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
-
             #Send everything to device
             signal_real = signal_real.to(device)
             label_src = label_src.to(device)
@@ -217,6 +205,27 @@ def main():
             c_tgt = c_tgt.to(device)
             if need_target_signal:
                 signal_real_tgt = signal_real_tgt.to(device)
+            
+            #f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+            f0_src, f0_src_activ = util.crepe.filtered_pitch(signal_real)
+
+            if hp.train.no_conv:
+                f0_conv_tgt = f0_src
+                f0_conv_tgt_activ = f0_src_activ
+            else:
+                f0_tgt = f0_src[perm]
+                
+                mu_tgt = torch.sum((f0_tgt>0)*torch.log(f0_tgt+1e-6), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6)
+                mu_src = torch.sum((f0_src>0)*torch.log(f0_src+1e-6), -1, keepdim=True)/(torch.sum(f0_src>0, -1, keepdim=True)+1e-6)
+                
+                f0_conv_tgt = torch.zeros(f0_src.shape).to(device)
+                f0_conv_tgt[f0_src>0] = torch.exp(torch.log(f0_src+1e-6) + mu_tgt - mu_src)[f0_src>0]
+                f0_conv_tgt_activ = util.roll_batches(f0_src_activ, util.crepe.get_shift(torch.exp(mu_src), torch.exp(mu_tgt)), 1)
+                
+            
+            c_f0_conv = util.f0_to_excitation(f0_conv_tgt, 64, sampling_rate=hp.model.sample_rate)
+            c_f0_src = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
+            
 
             #Compute fake signal
             signal_fake = G(signal_real,c_tgt, c_var = c_f0_conv)
@@ -384,15 +393,16 @@ def main():
                 if hp.train.lambda_f0 != 0:
                     #f0_tgt = torchyin.estimate(signal_real_tgt.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
                     #f0_conv, voiced_conv = f0_est(signal_fake)
-                    if epoch == start_epoch:
-                        f0_tgt_mean = torch.sum((f0_tgt>0)*(f0_tgt), (-2,-1))/(torch.sum(f0_tgt>0, (-2,-1))+1e-6)
-                        alpha = f0_Ns[label_tgt]/(f0_Ns[label_tgt]+1)
-                        f0_means[label_tgt] = alpha*f0_Ns[label_tgt] + (1-alpha)*f0_tgt_mean.detach()
-                        f0_Ns[label_tgt] = f0_Ns[label_tgt]+1
+                    # if epoch == start_epoch:
+                    #     f0_tgt_mean = torch.sum((f0_tgt>0)*(f0_tgt), (-2,-1))/(torch.sum(f0_tgt>0, (-2,-1))+1e-6)
+                    #     alpha = f0_Ns[label_tgt]/(f0_Ns[label_tgt]+1)
+                    #     f0_means[label_tgt] = alpha*f0_Ns[label_tgt] + (1-alpha)*f0_tgt_mean.detach()
+                    #     f0_Ns[label_tgt] = f0_Ns[label_tgt]+1
                     
-                    f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
+                    #f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
+                    f0_conv, f0_conv_activ = util.crepe.filtered_pitch(signal_fake)
 
-                    f0_src, f0_tgt, f0_conv, f0_conv_tgt = f0_src/400, f0_tgt/400, f0_conv/400, f0_conv_tgt/400
+                    #f0_src, f0_tgt, f0_conv, f0_conv_tgt = f0_src/400, f0_tgt/400, f0_conv/400, f0_conv_tgt/400
 
                     if False:
                         #g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[voiced_conv>.5],-1))
@@ -418,7 +428,8 @@ def main():
                         #f0_conv_tgt = f0_src
                         
                         #g_loss_f0 = F.mse_loss(f0_conv[f0_conv>0],f0_conv_alt[f0_conv>0])
-                        g_loss_f0 = F.mse_loss(f0_conv,f0_conv_tgt)
+                        #g_loss_f0 = F.mse_loss(f0_conv,f0_conv_tgt)
+                        g_loss_f0 = F.mse_loss(f0_conv_activ,f0_conv_tgt_activ.detach())
                         
                 else:
                     g_loss_f0 = 0
