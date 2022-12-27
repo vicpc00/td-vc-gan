@@ -13,17 +13,25 @@ model = 'tiny'
 
 batch_size = None
 
-#decoder = crepe.decode.viterbi
-decoder = crepe.decode.argmax
 
 silence_tresh = -60. #dB
 periodicity_tresh = .21
 
 crepe.UNVOICED = 0.
 
-def filtered_pitch(signal):
+def filtered_pitch(signal, decoder="argmax"):
     
     device = signal.device
+    
+    if decoder == "argmax":
+        dec = crepe.decode.argmax
+    elif decoder == "weighted_argmax":
+        dec = crepe.decode.weighted_argmax
+    elif decoder == "viterbi":
+        dec = crepe.decode.viterbi
+    else:
+        print("Unknow decoder")
+    
     
     if signal.ndim == 3:
         squeezed = True
@@ -50,7 +58,7 @@ def filtered_pitch(signal):
         with torch.no_grad():
             pitches, periodicities = crepe.postprocess(activ,
                                                      fmin, fmax,
-                                                     decoder = decoder,
+                                                     decoder = dec,
                                                      return_periodicity = True)
         activations_list.append(activations)
         pitches_list.append(pitches)

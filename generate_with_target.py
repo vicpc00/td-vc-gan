@@ -13,6 +13,8 @@ import data.dataset as dataset
 
 import util
 import util.yin as torchyin
+import util.crepe
+
 
 from util.hparams import HParam
 
@@ -109,7 +111,8 @@ def main():
         #print(i, file_name, label_src)
         #print(type(signal_real))
         
-        f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+        #f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+        f0_src, _ = util.crepe.filtered_pitch(signal_real, "viterbi")
         mu_src = torch.sum((f0_src>0)*torch.log(f0_src+1e-6), -1, keepdim=True)/(torch.sum(f0_src>0, -1, keepdim=True)+1e-6)
         
         
@@ -125,7 +128,8 @@ def main():
             c_tgt = c_tgt.to(device)
             
             
-            f0_tgt = torchyin.estimate(signal_tgt, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+            #f0_tgt = torchyin.estimate(signal_tgt, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+            f0_tgt, _ = util.crepe.filtered_pitch(signal_tgt, "viterbi")
 
             mu_tgt = torch.sum((f0_tgt>0)*torch.log(f0_tgt+1e-6), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6)
             f0_conv_tgt = torch.zeros(f0_src.shape).to(device)
