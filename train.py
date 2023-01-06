@@ -205,7 +205,7 @@ def main():
             
             #Discriminator training
             #Real signal losses
-            out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
+            out_adv_real_list, features_real_list = D(signal_real, label_src)
             #print(out_adv)
             #print(label_src.shape, out_cls_real_list[0].shape)
             """
@@ -215,7 +215,7 @@ def main():
                 d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
             """
             #Fake signal losses
-            out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
+            out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt)
             """
             d_loss_cls_fake = 0
             for out_cls_fake in out_cls_fake_list:
@@ -230,16 +230,9 @@ def main():
                 d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
             d_gan_loss = d_loss_adv_real + d_loss_adv_fake
             
-            d_loss_cls_real = 0
-            d_loss_cls_fake = 0
-            for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
-                d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-                d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
-            d_loss_cls = d_loss_cls_real+d_loss_cls_fake
-            
             
             #Full loss
-            d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
+            d_loss = d_gan_loss
             #Optimize
             optimizer_D.zero_grad()
             d_loss.backward()
@@ -250,8 +243,6 @@ def main():
             #Logging
             loss['D_loss_adv_real'] = d_loss_adv_real.item()
             loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
-            loss['D_loss_cls_real'] = d_loss_cls_real.item()
-            loss['D_loss_cls_fake'] = d_loss_cls_fake.item()
             
             #D_grad_norm = sum([param.grad.norm().item() for param in D.parameters()])
             D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
@@ -270,10 +261,9 @@ def main():
                 loss['C_loss'] = c_loss.item()
                 loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
             
-            del out_adv_real_list, out_cls_real_list
-            del out_adv_fake_list, out_cls_fake_list, features_fake_list
+            del out_adv_real_list
+            del out_adv_fake_list, features_fake_list
             del out_adv_fake, out_adv_real, d_gan_loss
-            del out_cls_real, out_cls_fake, d_loss_cls
             del d_loss
             if hp.train.lambda_latcls != 0:
                 del out_lat_cls, c_loss
@@ -285,20 +275,18 @@ def main():
                 #Fake signal losses
                 signal_fake = G(signal_real,c_tgt,c_src)
                 sig_real_cont_emb = G.content_embedding.clone()
-                out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt,c_src)
+                out_adv_fake_list, _ = D(signal_fake, label_tgt)
                 #if hp.train.gan_loss == 'lsgan':
                 g_loss_adv_fake = 0
-                g_loss_cls_fake = 0
-                for out_adv_fake, out_cls_fake in zip(out_adv_fake_list, out_cls_fake_list):
+                for out_adv_fake in out_adv_fake_list:
                     g_loss_adv_fake += F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size()).to(device))
-                    #g_loss_cls_fake += F.cross_entropy(out_cls_fake, label_tgt)
-                    g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
+
                     
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec = G(signal_fake, c_src, c_tgt)
+                    signal_rec = G(signal_fake, label_src)
                     if hp.train.rec_loss == 'feat':
-                        _, _, features_rec_list = D(signal_rec,c_src,c_tgt)
+                        _, features_rec_list = D(signal_rec, label_src)
                         g_loss_rec = 0
                         for features_rec, features_real in zip(features_rec_list, features_real_list):
                             for feat_rec, feat_real in zip(features_rec, features_real):
@@ -323,7 +311,7 @@ def main():
                     else:
                         signal_idt = signal_fake
                     if hp.train.rec_loss == 'feat':
-                        _, _, features_idt_list = D(signal_idt,c_src,c_src)
+                        _, features_idt_list = D(signal_idt, label_src)
                         g_loss_idt = 0
                         for features_idt, features_real in zip(features_idt_list, features_real_list):
                             for feat_idt, feat_real in zip(features_idt, features_real):
@@ -342,7 +330,6 @@ def main():
                 
                 #Full loss
                 g_loss = g_loss_adv_fake + \
-                         hp.train.lambda_cls*g_loss_cls_fake + \
                          hp.train.lambda_rec*g_loss_rec + \
                          hp.train.lambda_idt*g_loss_idt + \
                          hp.train.lambda_latcls*g_loss_lat_cls + \
@@ -374,7 +361,6 @@ def main():
                 
                 #Logging
                 loss['G_loss_adv_fake'] = g_loss_adv_fake if type(g_loss_adv_fake) == int else g_loss_adv_fake.item() #Check if int because it can be 0
-                loss['G_loss_cls_fake'] = g_loss_cls_fake if type(g_loss_cls_fake) == int else g_loss_cls_fake.item()
                 loss['G_loss_rec'] = g_loss_rec if type(g_loss_rec) == int else g_loss_rec.item()
                 loss['G_loss_idt'] = g_loss_idt if type(g_loss_idt) == int else g_loss_idt.item()
                 loss['G_loss_lat_cls'] = g_loss_lat_cls if type(g_loss_lat_cls) == int else g_loss_lat_cls.item()
@@ -384,9 +370,9 @@ def main():
 #                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
 #                loss['G_loss_grad_norm'] = G_grad_norm
                 
-                del out_adv_fake_list, out_cls_fake_list
-                del out_adv_fake, out_cls_fake
-                del g_loss_adv_fake, g_loss_cls_fake
+                del out_adv_fake_list
+                del out_adv_fake
+                del g_loss_adv_fake
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     del features_rec_list, features_rec, features_real, feat_rec, feat_real, g_loss_rec
                 if hp.train.lambda_idt > 0:
@@ -402,6 +388,7 @@ def main():
                     print(', {}: {:.4f}'.format(label, value),end='')
                 print()
             iter_count += 1
+            
         if epoch % hp.log.val_interval == 0:
             print('Validation loop')
             G.eval()
@@ -428,9 +415,9 @@ def main():
                     #Compute fake signal
                     signal_fake = G(signal_real,c_tgt,c_src)
                     #Real signal losses
-                    out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
+                    out_adv_real_list, features_real_list = D(signal_real, label_src)
                     #Fake signal losses
-                    out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
+                    out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt)
                     
                     d_loss_adv_real = 0
                     d_loss_adv_fake = 0
@@ -441,15 +428,6 @@ def main():
                         g_loss_adv_fake += F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size()).to(device))
                     d_gan_loss = d_loss_adv_real + d_loss_adv_fake
                     
-                    d_loss_cls_real = 0
-                    d_loss_cls_fake = 0
-                    g_loss_cls_fake = 0
-                    for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
-                        d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-                        d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
-                        g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
-                    d_loss_cls = d_loss_cls_real+d_loss_cls_fake
-                    
                     if 'C' in locals():
                         sig_cont_emb = G.content_embedding
                         out_lat_cls = C(sig_cont_emb)
@@ -459,13 +437,11 @@ def main():
                         g_loss_lat_cls = torch.tensor([0])
                         c_acc = torch.tensor([0])
                     
-                    d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
-                    g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake
+                    d_loss = d_gan_loss
+                    g_loss = g_loss_adv_fake
                     
                     loss['val_loss_adv_real'] = loss.setdefault('val_loss_adv_real',0) + d_loss_adv_real.item()
                     loss['val_loss_adv_fake'] = loss.setdefault('val_loss_adv_fake',0) + d_loss_adv_fake.item()
-                    loss['val_loss_cls_real'] = loss.setdefault('val_loss_cls_real',0) + d_loss_cls_real.item()
-                    loss['val_loss_cls_fake'] = loss.setdefault('val_loss_cls_fake',0) + d_loss_cls_fake.item()
                     loss['val_loss_lat_cls'] = loss.setdefault('val_loss_lat_cls',0) + g_loss_lat_cls.item()
                     loss['val_D_loss'] = loss.setdefault('val_D_loss',0) + d_loss.item()
                     loss['val_G_loss'] = loss.setdefault('val_G_loss',0) + g_loss.item()
