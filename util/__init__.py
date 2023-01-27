@@ -1,4 +1,4 @@
-
+import numpy as np
 import torch.nn as nn
 from model.conditional_instance_norm import ConditionalInstanceNorm
 
@@ -16,6 +16,12 @@ def get_weight_norm(norm):
     if norm == 'weight_norm':
         return nn.utils.weight_norm
             
+    
+def eq_rms(signal, target_rms):
+    rms = np.sqrt((signal**2).mean())
+    gain = 10**(target_rms/20)/rms
+    return signal*gain
+    
 def load_possible(model, state_dict):
     state_dict_old = model.state_dict()
     

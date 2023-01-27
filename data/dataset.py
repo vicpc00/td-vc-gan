@@ -10,9 +10,13 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 import resampy
 
+import util
+
 class WaveDataset(Dataset):
 
-    def __init__(self, dataset_file, speaker_file, sample_rate=24000, max_segment_size = None, return_index = False, augment_noise = None, silence_threshold=None):
+    def __init__(self, dataset_file, speaker_file, sample_rate=24000, 
+                 max_segment_size = None, return_index = False, 
+                 augment_noise = None, silence_threshold=None, normalization_db=None):
         
         with open(speaker_file,'rb') as f:
             self.spk_dict = pickle.load(f)
@@ -28,6 +32,8 @@ class WaveDataset(Dataset):
         
         self.augment_noise = augment_noise
         self.silence_threshold = silence_threshold
+        
+        self.normalization_db = normalization_db
 
         self.spk_reverse_dict = {}
         for key,val in self.spk_dict.items():
@@ -49,6 +55,8 @@ class WaveDataset(Dataset):
                 signal,sr = librosa.load(file_path,sr=self.sr)
         else:
             signal = np.load(file_path).T
+        if self.normalization_db:
+            signal = util.eq_rms(signal, self.normalization_db)
         if self.augment:
             G = np.random.uniform(low=0.3, high=1.0)
             signal = signal*G
