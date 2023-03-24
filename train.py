@@ -92,9 +92,10 @@ def main():
     print(device)
 
     train_dataset = dataset.WaveDataset(data_path / 'train_files', data_path / 'speakers', sample_rate=hp.model.sample_rate, 
-                                        max_segment_size = hp.train.max_segment, augment_noise = 1e-9, normalization_db = -30)
+                                        max_segment_size = hp.train.max_segment, augment_noise = 1e-9, 
+                                        normalization_db = hp.train.normalization_db)
     test_dataset = dataset.WaveDataset(data_path / 'test_files', data_path / 'speakers', sample_rate=hp.model.sample_rate,
-                                        max_segment_size = hp.test.max_segment, normalization_db = -30)
+                                        max_segment_size = hp.test.max_segment, normalization_db = hp.train.normalization_db)
 
     train_data_loader = torch.utils.data.DataLoader(train_dataset,
                                    batch_size=hp.train.batch_size,
@@ -245,8 +246,8 @@ def main():
             loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
             
             #D_grad_norm = sum([param.grad.norm().item() for param in D.parameters()])
-            D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
-            loss['D_loss_grad_norm'] = D_grad_norm
+            #D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
+            #loss['D_loss_grad_norm'] = D_grad_norm
             
             #Latent classifier step
             if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
