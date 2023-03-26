@@ -288,8 +288,8 @@ class Generator(nn.Module):
         c_src = self.embedding(c_src) if c_src != None else None
         
         x = self.encoder(x,c_src)
-        if self.output_content_emb:
-            self.content_embedding=x
+
+        content_embedding = x
         
         if self.both_cond:
             c = torch.cat([c_src,c_tgt],dim=1)
@@ -301,5 +301,11 @@ class Generator(nn.Module):
         
 #        if self.output_content_emb:
 #            return x, content_emb
-        
+
+        return x, content_embedding
+    
+    def encode(self, x, c_src = None):
+        c_src = self.embedding(c_src) if c_src != None else None
+        x = self.encoder(x,c_src)
         return x
+

@@ -54,6 +54,17 @@ def load_model(model, path):
             for msg in messages[msg_type]:
                 print(f'{msg_type}: {msg}')
         
+class GDataParallel(torch.nn.DataParallel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._methods = ['get_embedding', 'encode']
+
+    def __getattr__(self, name):
+        if name in self._methods:
+            return getattr(self.module, name)
+
+        else:
+            return super().__getattr__(name)
 
 #Random seed updater for workers. 
 #See https://tanelp.github.io/posts/a-bug-that-plagues-thousands-of-open-source-ml-projects/
@@ -88,7 +99,8 @@ def main():
     logger = tensorboard.SummaryWriter(str(save_path / 'logs'))
 
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    n_devices = torch.cuda.device_count()
     print(device)
 
     train_dataset = dataset.WaveDataset(data_path / 'train_files', data_path / 'speakers', sample_rate=hp.model.sample_rate, 
@@ -162,6 +174,10 @@ def main():
         start_epoch = 0
         
     #Send models to device
+    if torch.cuda.is_available() and n_devices > 1:
+        G = GDataParallel(G, range(n_devices))
+        D = torch.nn.DataParallel(D, range(n_devices))
+
     G.to(device)
     D.to(device)
 
@@ -202,7 +218,7 @@ def main():
             c_tgt = c_tgt.to(device)
 
             #Compute fake signal
-            signal_fake = G(signal_real,c_tgt,c_src)
+            signal_fake, _ = G(signal_real,c_tgt,c_src)
             
             #Discriminator training
             #Real signal losses
@@ -274,8 +290,7 @@ def main():
             if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
 
                 #Fake signal losses
-                signal_fake = G(signal_real,c_tgt,c_src)
-                sig_real_cont_emb = G.content_embedding.clone()
+                signal_fake, sig_real_cont_emb = G(signal_real,c_tgt,c_src)
                 out_adv_fake_list, _ = D(signal_fake, label_tgt)
                 #if hp.train.gan_loss == 'lsgan':
                 g_loss_adv_fake = 0
@@ -285,7 +300,7 @@ def main():
                     
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec = G(signal_fake, label_src)
+                    signal_rec, _ = G(signal_fake, label_src)
                     if hp.train.rec_loss == 'feat':
                         _, features_rec_list = D(signal_rec, label_src)
                         g_loss_rec = 0
@@ -300,7 +315,7 @@ def main():
 
                 #Content embedding loss
                 if hp.train.lambda_cont_emb > 0:
-                    sig_fake_cont_emb = G.encoder(signal_fake)
+                    sig_fake_cont_emb = G.encode(signal_fake)
                     g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
                 else:
                     g_loss_cont_emb = 0
@@ -308,7 +323,7 @@ def main():
                     #Identity loss
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
-                        signal_idt = G(signal_real, c_src, c_src)
+                        signal_idt, _ = G(signal_real, c_src, c_src)
                     else:
                         signal_idt = signal_fake
                     if hp.train.rec_loss == 'feat':
@@ -414,7 +429,7 @@ def main():
                     c_tgt = c_tgt.to(device)
                     
                     #Compute fake signal
-                    signal_fake = G(signal_real,c_tgt,c_src)
+                    signal_fake, _ = G(signal_real,c_tgt,c_src)
                     #Real signal losses
                     out_adv_real_list, features_real_list = D(signal_real, label_src)
                     #Fake signal losses
@@ -488,8 +503,8 @@ def main():
                 c_src = c_src.to(device)
                 c_tgt = c_tgt.to(device)
                 
-                signal_fake = G(signal_real,c_tgt,c_src)
-                signal_rec = G(signal_fake,c_src,c_tgt)
+                signal_fake, _ = G(signal_real,c_tgt,c_src)
+                signal_rec, _ = G(signal_fake,c_src,c_tgt)
                 
                 signal_real = signal_real.squeeze().cpu().detach().numpy()
                 signal_fake = signal_fake.squeeze().cpu().detach().numpy()
