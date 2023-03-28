@@ -19,7 +19,7 @@ if __name__ == '__main__':
     
     os.makedirs(opt.save_folder,exist_ok=True)
     
-    dirs = [d.name for d in os.scandir(opt.dataset_folder) if d.is_dir() and len(glob(os.path.join(d.path,'*'+opt.ext),recursive=True)) > 0]
+    dirs = [d.name for d in os.scandir(opt.dataset_folder) if d.is_dir() and len(glob(os.path.join(d.path,'**','*'+opt.ext),recursive=True)) > 0]
     random.shuffle(dirs)
     dirs, dirs_oos = dirs[opt.out_of_sample_speakers:], dirs[:opt.out_of_sample_speakers]
 
@@ -35,7 +35,7 @@ if __name__ == '__main__':
     oos_set = []
 
     for d in dirs:
-        files = glob(os.path.join(opt.dataset_folder,d,'*'+opt.ext),recursive=True)
+        files = glob(os.path.join(opt.dataset_folder,d,'**','*'+opt.ext),recursive=True)
         print(d,len(files))
         files.sort()
         if len(files) > 5*opt.test_size:
