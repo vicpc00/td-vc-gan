@@ -158,20 +158,20 @@ def main():
             if os.path.exists(load_path / '{}-C.pt'.format(load_file_base)):
                 load_model(C, load_path / '{}-C.pt'.format(load_file_base))
             #C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
-            C.to(device)
+            
     else:
         start_epoch = 0
         
     #Send models to device
     G.to(device)
-    D.to(device)
+    D.to(device)       
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
     optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
 
     if 'C' in locals():
         optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
-    
+        C.to(device)
     
     if hp.train.freeze_subnets is not None and 'encoder' in hp.train.freeze_subnets:
         for param in G.encoder.parameters():
