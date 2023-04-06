@@ -154,8 +154,9 @@ def main():
         #G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
         #D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
 
-        if 'C' in locals() and os.path.exists(load_path / '{}-C.pt'.format(load_file_base)):
-            load_model(C, load_path / '{}-C.pt'.format(load_file_base))
+        if 'C' in locals():
+            if os.path.exists(load_path / '{}-C.pt'.format(load_file_base)):
+                load_model(C, load_path / '{}-C.pt'.format(load_file_base))
             #C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
             C.to(device)
     else:
