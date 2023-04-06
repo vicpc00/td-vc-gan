@@ -80,12 +80,12 @@ fig_template = '''
        </figure> 
 '''
 
-def build_tables(phrase_ids, spks, result_dict):
+def build_tables(phrase_ids, spks, result_dict, name_fn):
     tables = ''
     for i, phrase_id in enumerate(phrase_ids):
         table = f'<h3>Phrase {phrase_id}:</h3>\n'
         table += f'<h4>Audio Signals</h4>\n'
-        table += build_audio_and_result_table(phrase_id,i, spks, result_dict)
+        table += build_audio_and_result_table(phrase_id,i, spks, result_dict, name_fn)
         #table += f'<h4>Audio Signals</h4>\n'
         #table += build_audio_table(phrase_id, spks)
         #table += f'<h4>Mel Cepstral Distances</h4>\n'
@@ -93,12 +93,12 @@ def build_tables(phrase_ids, spks, result_dict):
         tables += table
     return tables
 
-def build_audio_and_result_table(phrase_id, phrase_idx, spks, result_dict):
+def build_audio_and_result_table(phrase_id, phrase_idx, spks, result_dict, name_fn):
     #print(phrase_id, phrase_idx,len(result_dict[spks[0]][spks[0]]))
     table = html_table_headers.format(5*len(spks)+3,len(spks)+1)
     table += '<tr>\n<td></td>\n'
     for tgt_spk in spks:
-        table += f'<td>{tgt_spk}</td>\n'
+        table += f'<td>{name_fn(tgt_spk)}</td>\n'
     table += '</tr>\n'
     table += '<tr>\n<td>Originals</td>\n'
     for tgt_spk in spks:
@@ -107,7 +107,7 @@ def build_audio_and_result_table(phrase_id, phrase_idx, spks, result_dict):
         
     for src_spk in spks:
         table += '<tr>\n'
-        table += f'<td rowspan="5">{src_spk}</td>\n'
+        table += f'<td rowspan="5">{name_fn(src_spk)}</td>\n'
         for tgt_spk in spks:
             table += f'<td><audio id="player" controls preload="none"><source src="signals/{phrase_id}-{src_spk}-{tgt_spk}-conv.wav" /></audio></td>\n'
         table += '</tr>\n'
@@ -115,7 +115,7 @@ def build_audio_and_result_table(phrase_id, phrase_idx, spks, result_dict):
         for tgt_spk in spks:
             if 'test_class' in result_dict:
                 correct = result_dict["test_class"][src_spk][tgt_spk][int(phrase_idx)] == tgt_spk
-                table += f'<td bgcolor={"green" if correct else "red"}>{result_dict["test_class"][src_spk][tgt_spk][int(phrase_idx)]}</td>\n'
+                table += f'<td bgcolor={"green" if correct else "red"}>{name_fn(result_dict["test_class"][src_spk][tgt_spk][int(phrase_idx)])}</td>\n'
             else:
                 table += '<td>&mdash;</td>\n'
         table += '</tr>\n'
@@ -176,17 +176,17 @@ def build_result_table(phrase_id, spks, result_dict):
         table += '</tr>\n'
     return html_table_template.format(table)
 
-def build_sumary_table(result_dict):
-    spks = result_dict.keys()
+def build_sumary_table(result_dict, spks, name_fn):
+    #spks = result_dict.keys()
     table = html_table_headers.format(len(spks)+2,len(spks))
     table += '<tr>\n<td></td>\n'
     for tgt_spk in spks:
-        table += f'<td style="width:70px; height:30px">{tgt_spk}</td>\n'
+        table += f'<td style="width:70px; height:30px">{name_fn(tgt_spk)}</td>\n'
     table += '</tr>\n' 
         
     for src_spk in spks:
         table += '<tr>\n'
-        table += f'<td style="width:70px; height:30px">{src_spk}</td>\n'
+        table += f'<td style="width:70px; height:30px">{name_fn(src_spk)}</td>\n'
         for tgt_spk in spks:
             table += f'<td>{result_dict[src_spk][tgt_spk]:.2f}</td>\n'
         table += '</tr>\n'
@@ -197,7 +197,7 @@ def dict_stats(result_dict, count_self = True):
     for src_spk in result_dict.keys():
         for tgt_spk in result_dict[src_spk].keys():
             if src_spk == tgt_spk and not count_self: continue
-            result_list += result_dict[src_spk][tgt_spk]
+            result_list += filter(np.isfinite, result_dict[src_spk][tgt_spk])
             
     mean = np.mean(result_list)
     #ci  = st.t.interval(0.95, len(result_list)-1, loc=mean, scale=st.sem(result_list))
@@ -215,7 +215,8 @@ def dict_stats_per_pair(result_dict):
     for src_spk in result_dict.keys():
         pair_mean_dist[src_spk] = dict.fromkeys(result_dict[src_spk].keys())
         for tgt_spk in result_dict[src_spk].keys():
-            pair_mean_dist[src_spk][tgt_spk] = sum(result_dict[src_spk][tgt_spk])/len(result_dict[src_spk][tgt_spk])
+            filtered = list(filter(np.isfinite, result_dict[src_spk][tgt_spk]))
+            pair_mean_dist[src_spk][tgt_spk] = sum(filtered)/len(filtered)
 
     
     return pair_mean_dist
@@ -245,7 +246,7 @@ def dict_correct_rate_per_pair(result_dict):
 
     return pair_corr_rate
 
-def build_result_sumary(result_dict):
+def build_result_sumary(result_dict, spks, name_fn):
     sumary = '<h2>Objective measures sumary</h2>\n'
     if 'test_class' in result_dict:
         sumary += '<b>Speaker recognition correct rate</b>: {:.3f}&pm;{:.03f}<br/>\n'.format(*dict_correct_rate(result_dict['test_class']))
@@ -358,19 +359,19 @@ def build_result_sumary(result_dict):
     
     if 'test_class' in result_dict:
         sumary += '<h3>Speaker recognition correct rate</h3>\n'
-        sumary += build_sumary_table(dict_correct_rate_per_pair(result_dict['test_class']))
+        sumary += build_sumary_table(dict_correct_rate_per_pair(result_dict['test_class']), spks, name_fn)
     if 'mcd_result_conv' in result_dict:
         sumary += '<h3>Mel cepstral distance</h3>\n'
-        sumary += build_sumary_table(dict_stats_per_pair(result_dict['mcd_result_conv']))
+        sumary += build_sumary_table(dict_stats_per_pair(result_dict['mcd_result_conv']), spks, name_fn)
     if 'diff_f0_mean' in result_dict:
         sumary += '<h3>Diff log F0</h3>\n'
-        sumary += build_sumary_table(dict_stats_per_pair(result_dict['diff_f0_mean']))
+        sumary += build_sumary_table(dict_stats_per_pair(result_dict['diff_f0_mean']), spks, name_fn)
     if 'emb_dist' in result_dict:
         sumary += '<h3>Embedding similarity</h3>\n'
-        sumary += build_sumary_table(dict_stats_per_pair(result_dict['emb_dist']))
+        sumary += build_sumary_table(dict_stats_per_pair(result_dict['emb_dist']), spks, name_fn)
     if 'mos_result_conv' in result_dict:
         sumary += '<h3>Predicted MOS</h3>\n'
-        sumary += build_sumary_table(dict_stats_per_pair(result_dict['mos_result_conv']))
+        sumary += build_sumary_table(dict_stats_per_pair(result_dict['mos_result_conv']), spks, name_fn)
     
     
     return sumary
@@ -422,7 +423,7 @@ def gen_boxplots(result_dict, spks, test_dir):
         for src_spk in spks:
             for tgt_spk in spks:
                 if src_spk == tgt_spk and not count_self: continue
-                flattened[res] += result_dict[res][src_spk][tgt_spk]
+                flattened[res] += filter(np.isfinite, result_dict[res][src_spk][tgt_spk])
                 
     if not flattened:
         return
@@ -435,7 +436,8 @@ def gen_boxplots(result_dict, spks, test_dir):
               'mos_result_conv': (1,5)}
     
     
-    fig, axs = plt.subplots(1,len(flattened))
+    fig, axs = plt.subplots(1,len(flattened), squeeze=False)
+    axs = axs.squeeze(0)
     fig.tight_layout()
     
     for idx, res in enumerate(flattened):
@@ -462,7 +464,8 @@ def gen_hists(result_dict, spks, test_dir):
         return
     
     n = len(flattened)
-    fig, axs = plt.subplots(1,n, figsize=(4*n,4))
+    fig, axs = plt.subplots(1,n, figsize=(4*n,4), squeeze=False)
+    axs = axs.squeeze(0)
     fig.tight_layout()
     idx = 0
     
@@ -520,7 +523,9 @@ def load_dicts(test_dir):
         
     return result_dict
 
-def build_html(out_filename, test_dir, parse_fn):
+def build_html(out_filename, test_dir, parse_fn, name_fn = None):
+    if not name_fn:
+        name_fn = lambda x: x
     
     #Getting speakers
     filelist = glob.glob(os.path.join(test_dir,'signals/*orig.wav'))
@@ -533,7 +538,7 @@ def build_html(out_filename, test_dir, parse_fn):
         phrase_ids.add(phrase_id)
         spks.add(src_spk)
     spks = list(spks)
-    spks.sort()
+    spks.sort(key=name_fn)
     phrase_ids = list(phrase_ids)
     phrase_ids.sort()
     #print(phrase_ids,spks)
@@ -567,9 +572,9 @@ def build_html(out_filename, test_dir, parse_fn):
     info += build_result_table(0, spks, mean_dists_orig)
     '''
     
-    info += build_result_sumary(result_dict)
+    info += build_result_sumary(result_dict, spks, name_fn)
     
-    tables = build_tables(phrase_ids, spks, result_dict)
+    tables = build_tables(phrase_ids, spks, result_dict, name_fn)
     
     plots = build_plots(result_dict, spks, test_dir)
     

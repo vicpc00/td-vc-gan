@@ -16,6 +16,9 @@ from tqdm import tqdm
 
 from . import parse_fn as default_parse_fn
 
+import warnings
+warnings.filterwarnings("error")
+
 ref_mceps = {}
 
 def eq_rms(signal, target_rms):
@@ -57,6 +60,10 @@ def mfcc_dist(test_file, ref_file, sr=16000):
         
         test_mcep, test_f0 = world_analyze(test_signal, sr)
         test_mcep = test_mcep[test_f0 > 0] #Remove silence
+        
+    if sum(test_f0 > 0) < 10:
+        print("Error: file with no voiced frames:", test_file, ref_file)
+        return np.nan, np.nan, np.nan
     
     if ref_file in ref_mceps.keys():
         ref_mcep, ref_f0 = ref_mceps[ref_file]
@@ -68,13 +75,18 @@ def mfcc_dist(test_file, ref_file, sr=16000):
         
         ref_mceps[ref_file] = (ref_mcep, ref_f0)
 
-    (dist, path) = fastdtw(test_mcep, ref_mcep, dist=2)
-    diff_f0_mean = np.mean(np.log(test_f0[test_f0 > 0])) - np.mean(np.log(ref_f0[ref_f0 > 0]))
-    diff_f0_var = np.log(np.var(test_f0[test_f0 > 0])) - np.log(np.var(ref_f0[ref_f0 > 0]))
-    
-    if len(path) == 0:
-        print("Error: 0 len path with files:", test_file,ref_file)
-        return 0, 0, 0
+    try:
+        (dist, path) = fastdtw(test_mcep, ref_mcep, dist=2)
+        if len(path) == 0:
+            print("Error: 0 len path with files:", test_file, ref_file)
+            return np.nan, np.nan, np.nan
+        diff_f0_mean = np.mean(np.log(test_f0[test_f0 > 0])) - np.mean(np.log(ref_f0[ref_f0 > 0]))
+        diff_f0_var = np.log(np.var(test_f0[test_f0 > 0])) - np.log(np.var(ref_f0[ref_f0 > 0]))
+    except RuntimeWarning:
+        print(test_file, ref_file)
+        print(np.sum(test_f0 > 0), np.sum(ref_f0 > 0))
+        print(len(path))
+        return np.nan, np.nan, np.nan
         
     return dist/len(path), diff_f0_mean, diff_f0_var
 
@@ -87,6 +99,9 @@ def f0_ratio(test_file, ref_file, sr=16000):
         
         test_mcep, test_f0 = world_analyze(test_signal, sr)
         test_mcep = test_mcep[test_f0 > 0] #Remove silence
+        
+    if sum(test_f0 > 0) < 10:
+        return np.nan
     
     if ref_file in ref_mceps.keys():
         _, ref_f0 = ref_mceps[ref_file]
@@ -97,8 +112,12 @@ def f0_ratio(test_file, ref_file, sr=16000):
         ref_mcep = ref_mcep[ref_f0 > 0] #Remove silence
         
         ref_mceps[ref_file] = (ref_mcep, ref_f0)
-        
-    ratio_f0 = np.mean(ref_f0[ref_f0>0])/np.mean(test_f0[test_f0>0])
+    try:
+        ratio_f0 = np.mean(ref_f0[ref_f0>0])/np.mean(test_f0[test_f0>0])
+    except RuntimeWarning:
+        print(test_file, ref_file)
+        print(np.sum(test_f0 > 0), np.sum(ref_f0 > 0))
+        return np.nan
     
     return ratio_f0
 
@@ -138,7 +157,7 @@ def test_mcd(out_filename, test_dir, parse_fn = None):
         sig_id, src_spk, _, _ = parse_fn(src_file)
 
         for tgt_file in orig_list:
-            sig_id_tgt, tgt_spk, _, _ = parse_fn(src_file)
+            sig_id_tgt, tgt_spk, _, _ = parse_fn(tgt_file)
 
             if sig_id != sig_id_tgt:
                 continue
@@ -162,5 +181,5 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
-    test_mcd(args.test_path, args.save_file)
+    test_mcd(args.save_file, args.test_path)
 

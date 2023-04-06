@@ -39,9 +39,9 @@ def parse_fn(filename, dataset_format):
     elif dataset_format == 'alcaim':
         src_spk, phrase_id = re.match(r'(\S+)-(\d+).wav',os.path.basename(filename)).groups()
     elif dataset_format == 'smt':
-        phrase_id = re.match(r'list(\S+).wav',os.path.basename(filename)).groups()
+        phrase_id = re.match(r'list(\S+).wav',os.path.basename(filename)).group(1)
     else:
-        phrase_id = os.path.splitext(file_name)[0]
+        phrase_id = os.path.splitext(filename)[0]
         
     return phrase_id
 
@@ -61,13 +61,12 @@ def generate_signals(save_path, data_path, load_path, config_file = None, data_f
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     
-    test_dataset = dataset.WaveDataset(data_path / data_file, data_path / 'speakers', sample_rate=hp.model.sample_rate)
+    test_dataset = dataset.WaveDataset(data_path / data_file, data_path / 'speakers', sample_rate=hp.model.sample_rate, normalization_db=-25)
     test_data_loader = torch.utils.data.DataLoader(test_dataset,
                                    batch_size=1,
                                    num_workers=1,
                                    collate_fn=dataset.collate_fn,
-                                   shuffle=False,pin_memory=True,
-                                   normalization_db=-25)
+                                   shuffle=False,pin_memory=True)
     
     nl = hp.model.generator.norm_layer
     wn = hp.model.generator.weight_norm
