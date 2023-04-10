@@ -161,6 +161,7 @@ def main():
             
     else:
         start_epoch = 0
+    #print(G)
         
     #Send models to device
     G.to(device)
@@ -302,7 +303,8 @@ def main():
                 #Content embedding loss
                 if hp.train.lambda_cont_emb > 0:
                     sig_fake_cont_emb = G.encoder(signal_fake)
-                    g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
+                    #g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
+                    g_loss_cont_emb = F.mse_loss(sig_fake_cont_emb, sig_real_cont_emb)
                 else:
                     g_loss_cont_emb = 0
 
@@ -391,6 +393,7 @@ def main():
                 print()
             iter_count += 1
             
+            
         if epoch % hp.log.val_interval == 0:
             print('Validation loop')
             G.eval()
@@ -398,6 +401,7 @@ def main():
             loss = {}
             with torch.no_grad():
                 for i, data in enumerate(val_data_loader):
+                    
                     signal_real, label_src = data
                     c_src = label2onehot(label_src,train_dataset.num_spk)
                     if hp.train.no_conv:
