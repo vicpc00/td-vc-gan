@@ -22,6 +22,8 @@ import data.dataset as dataset
 import util
 from util.hparams import HParam
 
+import util.losses
+
 def label2onehot(labels, n_classes):
     #labels: (batch_size,)
     batch_size = labels.size(0)
@@ -204,97 +206,94 @@ def main():
 
             #Compute fake signal
             signal_fake = G(signal_real,c_tgt,c_src)
+            sig_real_cont_emb = G.content_embedding.clone()
             
-            #Discriminator training
+            
             #Real signal losses
             out_adv_real_list, features_real_list = D(signal_real, label_src)
-            #print(out_adv)
-            #print(label_src.shape, out_cls_real_list[0].shape)
-            """
-            d_loss_cls_real = 0
-            for out_cls_real in out_cls_real_list:
-                #d_loss_cls_real += F.cross_entropy(out_cls_real, label_src)
-                d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-            """
-            #Fake signal losses
-            out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt)
-            """
-            d_loss_cls_fake = 0
-            for out_cls_fake in out_cls_fake_list:
-                d_loss_cls_fake += F.cross_entropy(out_cls_real, label_src)
-            """
 
-            #if hp.train.gan_loss == 'lsgan':
-            d_loss_adv_real = 0
-            d_loss_adv_fake = 0
-            for out_adv_fake, out_adv_real in zip(out_adv_fake_list,out_adv_real_list):
-                d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
-                d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
-            d_gan_loss = d_loss_adv_real + d_loss_adv_fake
             
             
-            #Full loss
-            d_loss = d_gan_loss
-            #Optimize
-            optimizer_D.zero_grad()
-            d_loss.backward()
-            if hp.train.grad_max_norm_D is not None:
-                torch.nn.utils.clip_grad_norm_(D.parameters(),hp.train.grad_max_norm_D)
-            optimizer_D.step()
-
-            #Logging
-            loss['D_loss_adv_real'] = d_loss_adv_real.item()
-            loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
             
-            #D_grad_norm = sum([param.grad.norm().item() for param in D.parameters()])
-            #D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
-            #loss['D_loss_grad_norm'] = D_grad_norm
-            
-            #Latent classifier step
-            if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
-                sig_cont_emb = G.content_embedding
-                out_lat_cls = C(sig_cont_emb)
-                c_loss = F.cross_entropy(out_lat_cls,label_src)
+            #Discriminator training
+            if iter_count % hp.train.D_step_interval == 0:
+                #Fake signal losses
+                out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt)
                 
-                optimizer_C.zero_grad()
-                c_loss.backward()
-                optimizer_C.step()
+                d_loss_adv_real = 0
+                d_loss_adv_fake = 0
+                for i, (out_adv_fake, out_adv_real) in enumerate(zip(out_adv_fake_list,out_adv_real_list)):
+                    d_loss_adv_real_ = F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
+                    d_loss_adv_fake_ = F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
+                    loss[f'D_loss_adv_real_{i}'] = d_loss_adv_real_.item()
+                    loss[f'D_loss_adv_fake_{i}'] = d_loss_adv_fake_.item()
+                    d_loss_adv_real += d_loss_adv_real_
+                    d_loss_adv_fake += d_loss_adv_fake_
+                    
+                d_gan_loss = d_loss_adv_real + d_loss_adv_fake
+                
+                
+                #Full loss
+                d_loss = d_gan_loss
+                #Optimize
+                optimizer_D.zero_grad()
+                d_loss.backward()
+                if hp.train.grad_max_norm_D is not None:
+                    torch.nn.utils.clip_grad_norm_(D.parameters(),hp.train.grad_max_norm_D)
+                optimizer_D.step()
+    
+                #Logging
+                loss['D_loss_adv_real'] = d_loss_adv_real.item()
+                loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
+                loss['D_loss'] = d_loss.item
             
-                loss['C_loss'] = c_loss.item()
-                loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
             
-            del out_adv_real_list
-            del out_adv_fake_list, features_fake_list
-            del out_adv_fake, out_adv_real, d_gan_loss
-            del d_loss
-            if hp.train.lambda_latcls != 0:
-                del out_lat_cls, c_loss
+                #Latent classifier step
+                if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
+                    sig_cont_emb = G.content_embedding
+                    out_lat_cls = C(sig_cont_emb)
+                    c_loss = F.cross_entropy(out_lat_cls,label_src)
+                    
+                    optimizer_C.zero_grad()
+                    c_loss.backward()
+                    optimizer_C.step()
+                
+                    loss['C_loss'] = c_loss.item()
+                    loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
+                
+                del out_adv_real_list
+                del out_adv_fake_list, features_fake_list
+                del out_adv_fake, out_adv_real, d_gan_loss
+                del d_loss
+                if hp.train.lambda_latcls != 0:
+                    del out_lat_cls, c_loss
             
 
             #Generator training
-            if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
-
+            if iter_count % hp.train.G_step_interval == 0: #N steps of D for each steap of G
                 #Fake signal losses
-                signal_fake = G(signal_real,c_tgt,c_src)
-                sig_real_cont_emb = G.content_embedding.clone()
-                out_adv_fake_list, _ = D(signal_fake, label_tgt)
-                #if hp.train.gan_loss == 'lsgan':
-                g_loss_adv_fake = 0
-                for out_adv_fake in out_adv_fake_list:
-                    g_loss_adv_fake += F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size()).to(device))
+                out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt)
 
+                g_loss_adv_fake = 0
+                for i, out_adv_fake in enumerate(out_adv_fake_list):
+                    g_loss_adv_fake_ = F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size()).to(device))
+                    loss[f'G_loss_adv_fake_{i}'] = g_loss_adv_fake_
+                    g_loss_adv_fake += g_loss_adv_fake_
                     
+                g_loss_rec = torch.zeros(1)
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
                     signal_rec = G(signal_fake, label_src)
-                    if hp.train.rec_loss == 'feat':
+                    if hp.train.lambda_feat > 0:
                         _, features_rec_list = D(signal_rec, label_src)
-                        g_loss_rec = 0
-                        for features_rec, features_real in zip(features_rec_list, features_real_list):
-                            for feat_rec, feat_real in zip(features_rec, features_real):
-                                g_loss_rec += torch.mean(torch.abs(feat_rec - feat_real.detach()))#L1 Loss
-                    else:
-                        g_loss_rec = torch.mean(torch.abs(signal_real - signal_rec))#L1 Loss
+                        g_loss_rec_feat = util.losses.multiscale_feat_loss(features_rec_list, features_real_list ,norm_p = 1)
+                        g_loss_rec += g_loss_rec_feat
+                    if hp.train.lambda_spec > 0:
+                        g_loss_rec_spec = util.losses.multiscale_spec_loss(signal_rec, signal_real, [2048, 1024, 512])
+                        g_loss_rec += g_loss_rec_spec
+                    if hp.train.lambda_wave > 0:
+                        g_loss_rec_wave = torch.mean(torch.abs(signal_real - signal_rec))#L1 Loss
+                        g_loss_rec += g_loss_rec_wave
 
                 else:
                     g_loss_rec = 0
