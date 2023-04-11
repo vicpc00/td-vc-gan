@@ -78,7 +78,7 @@ class MultiscaleDiscriminator(nn.Module):
         ret = []
         
         for disc in self.discriminators:
-            ret.append(disc(x,c_tgt, c_src))
+            ret.append(disc(x,c_tgt))
             #x = self.pooling(x)
             x = F.conv1d(x, self.down_filter, 
                          stride=2, 
