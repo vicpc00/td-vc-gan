@@ -20,6 +20,7 @@ from model.latent_classifier import LatentClassifier
 import data.dataset as dataset
 
 import util
+import util.audio
 from util.hparams import HParam
 
 import util.losses
@@ -279,10 +280,17 @@ def main():
                     loss[f'G_loss_adv_fake_{i}'] = g_loss_adv_fake_
                     g_loss_adv_fake += g_loss_adv_fake_
                     
+                if hp.train.lambda_rec > 0 or hp.train.lambda_idt > 0:
+                    #Real signal losses
+                    signal_real_jitter = util.audio.add_jitter(signal_real, 80)
+                    if hp.train.lambda_feat > 0:
+                        _, features_real_list = D(signal_real_jitter, label_src)
+                    
                 g_loss_rec = torch.zeros(1, device=device)
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
                     signal_rec = G(signal_fake, c_src, c_src)
+                    
                     sig_fake_cont_emb = G.content_embedding.clone()
                     if hp.train.lambda_feat > 0:
                         _, features_rec_list = D(signal_rec, label_src)
@@ -290,7 +298,7 @@ def main():
                         g_loss_rec += g_loss_rec_feat
                         loss['G_loss_rec_feat'] = g_loss_rec_feat
                     if hp.train.lambda_spec > 0:
-                        g_loss_rec_spec = util.losses.multiscale_spec_loss(signal_rec, signal_real, [2048, 1024, 512])
+                        g_loss_rec_spec = util.losses.multiscale_spec_loss(signal_rec, signal_real_jitter, [2048, 1024, 512])
                         g_loss_rec += g_loss_rec_spec
                         loss['G_loss_rec_spec'] = g_loss_rec_spec
                     if hp.train.lambda_wave > 0:
@@ -312,7 +320,7 @@ def main():
                         g_loss_idt += g_loss_idt_feat
                         loss['G_loss_idt_feat'] = g_loss_idt_feat
                     if hp.train.lambda_spec > 0:
-                        g_loss_idt_spec = util.losses.multiscale_spec_loss(signal_idt, signal_real, [2048, 1024, 512])
+                        g_loss_idt_spec = util.losses.multiscale_spec_loss(signal_idt, signal_real_jitter, [2048, 1024, 512])
                         g_loss_idt += g_loss_idt_spec
                         loss['G_loss_idt_spec'] = g_loss_idt_spec
                     if hp.train.lambda_wave > 0:
