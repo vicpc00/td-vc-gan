@@ -123,7 +123,7 @@ class CINResnetBlock(nn.Module):
         return self._residual(x,c) + self.shortcut(x)
         
 class Encoder(nn.Module):
-    def __init__(self,downsample_ratios,channel_sizes, n_res_blocks, conditional_dim = 0, norm_layer = nn.InstanceNorm1d, weight_norm = lambda x: x):
+    def __init__(self,downsample_ratios,channel_sizes, n_res_blocks, conditional_dim = 0, embedding_dim = None, norm_layer = nn.InstanceNorm1d, weight_norm = lambda x: x):
         super().__init__()
         
         model = nn.ModuleList()
@@ -160,6 +160,14 @@ class Encoder(nn.Module):
                     model += [FiLMResnetBlock(channel_sizes[i+1],conditional_dim, dilation=3**j,
                                               leaky_relu_slope=leaky_relu_slope,
                                               weight_norm = weight_norm)]
+                    
+        model += [nn.LeakyReLU(leaky_relu_slope),
+                  weight_norm(nn.Conv1d(channel_sizes[-1], channel_sizes[-1],
+                                       kernel_size = 7, stride = 1, padding=3,))]
+        if embedding_dim:
+            model += [nn.LeakyReLU(leaky_relu_slope),
+                      weight_norm(nn.Conv1d(channel_sizes[-1], embedding_dim,
+                                           kernel_size = 7, stride = 1, padding=3, bias=False))]
 
         
         self.encoder = model
@@ -176,16 +184,18 @@ class Encoder(nn.Module):
                 x = mod(x)
         else:
             for mod in self.encoder:
+                print(type(mod))
                 if type(mod) in [CINResnetBlock, ConditionalInstanceNorm, FiLMResnetBlock]:
                     x = mod(x,c)
                 else:
                     x = mod(x)
+        x = F.normalize(x, dim=1)
         return x
         #return self.encoder(x)
           
 
 class Decoder(nn.Module):
-    def __init__(self,upsample_ratios,channel_sizes, n_res_blocks, conditional_dim = 0, norm_layer = nn.InstanceNorm1d, weight_norm = lambda x: x):
+    def __init__(self,upsample_ratios,channel_sizes, n_res_blocks, conditional_dim = 0, embedding_dim = None, norm_layer = nn.InstanceNorm1d, weight_norm = lambda x: x):
         super().__init__()
         
         model = nn.ModuleList()
@@ -198,6 +208,16 @@ class Decoder(nn.Module):
         channel_sizes[0] += conditional_dim if not self.cin else 0
             
         leaky_relu_slope = 0.2
+        
+        if embedding_dim:
+            model += [nn.LeakyReLU(leaky_relu_slope),
+                      weight_norm(nn.Conv1d(embedding_dim, channel_sizes[0], 
+                                           kernel_size = 7, stride = 1, padding=3, bias=False))]
+        
+        model += [nn.LeakyReLU(leaky_relu_slope),
+                  weight_norm(nn.Conv1d(channel_sizes[0], channel_sizes[0],
+                                       kernel_size = 7, stride = 1, padding=3,))]
+        
         
         for i,r in enumerate(upsample_ratios):
             model += [norm_layer(channel_sizes[i]) if not self.cin else norm_layer(channel_sizes[i], conditional_dim),
@@ -245,7 +265,7 @@ class Decoder(nn.Module):
 
 class Generator(nn.Module):
     def __init__(self, decoder_ratios, decoder_channels, 
-                 num_bottleneck_layers, num_classes, conditional_dim,
+                 num_bottleneck_layers, num_classes, conditional_dim, content_dim = None,
                  norm_layer = None, weight_norm = None, #either None, str or (str,str,str)
                  bot_cond = 'target', enc_cond = None, dec_cond = None, 
                  output_content_emb = False):
@@ -286,8 +306,8 @@ class Generator(nn.Module):
         self.cin = bot_norm_layer is ConditionalInstanceNorm
         self.cin = True
         
-        self.decoder = Decoder(decoder_ratios, decoder_channels[:], num_res_blocks, dec_cond_dim, dec_norm_layer, dec_weight_norm)
-        self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, enc_cond_dim, enc_norm_layer, enc_weight_norm)
+        self.decoder = Decoder(decoder_ratios, decoder_channels[:], num_res_blocks, dec_cond_dim, content_dim, dec_norm_layer, dec_weight_norm)
+        self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, enc_cond_dim, content_dim, enc_norm_layer, enc_weight_norm)
         
         bottleneck = nn.ModuleList()
         if not self.cin:
@@ -297,6 +317,7 @@ class Generator(nn.Module):
                                            norm_layer=bot_norm_layer, weight_norm = bot_weight_norm)]
             bottleneck += [bot_weight_norm(nn.Conv1d(bot_dim,decoder_channels[0],kernel_size=1))]
         else:
+            
             bot_dim = decoder_channels[0]
             for i in range(num_bottleneck_layers):
                 bottleneck += [FiLMResnetBlock(bot_dim,bot_cond_dim, dilation=1, weight_norm = bot_weight_norm)]
