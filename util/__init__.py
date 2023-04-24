@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 import torch.nn as nn
 from model.conditional_instance_norm import ConditionalInstanceNorm
 
@@ -48,3 +49,17 @@ def load_possible(model, state_dict):
             messages['missing_keys'].append(param)
             
     return messages
+
+def roll_batches(input, shifts, dim):
+    
+    repeat = [d if i != dim else 1 for i,d in enumerate(input.shape)]
+    view = [1 if i != dim else -1 for i in range(input.ndim)]
+    
+    idx = torch.arange(input.shape[dim], device=input.device).view(view).repeat(repeat)
+    
+    view = [1 if i != 0 else -1 for i in range(input.ndim)]
+    
+    idx = (idx - shifts.view(view)) % input.shape[dim]
+    
+    return torch.gather(input, dim, idx)
+
