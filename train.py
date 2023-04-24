@@ -282,7 +282,10 @@ def main():
                     
                 if hp.train.lambda_rec > 0 or hp.train.lambda_idt > 0:
                     #Real signal losses
-                    signal_real_jitter = util.audio.add_jitter(signal_real, 80)
+                    if hp.train.jitter_amp > 0:
+                        signal_real_jitter = util.audio.add_jitter(signal_real, hp.train.jitter_amp)
+                    else:
+                        signal_real_jitter = signal_real
                     if hp.train.lambda_feat > 0:
                         _, features_real_list = D(signal_real_jitter, label_src)
                     
