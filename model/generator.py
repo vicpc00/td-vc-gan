@@ -65,7 +65,7 @@ class ResnetBlock(nn.Module):
 class FiLMResnetBlock(nn.Module):
     def __init__(self, n_channel, n_cond, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2, weight_norm = lambda x: x):
         super().__init__()
-        self.use_scale = False
+        self.use_scale = True
         self.conv = nn.Sequential(
                 nn.LeakyReLU(leaky_relu_slope),
                 weight_norm(nn.Conv1d(n_channel,n_channel,
