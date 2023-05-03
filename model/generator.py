@@ -79,12 +79,16 @@ class FiLMResnetBlock(nn.Module):
                            kernel_size=1))
                 )
         self.cond = weight_norm(nn.Linear(n_cond,2*n_channel))
+        self.cond_var = nn.Conv1d(n_cond+1, n_channel*2, kernel_size=5, padding='same')
         self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
     
     def forward(self,x,c):
         h = self.conv(x)
-        c = self.cond(c)
-        c = c.unsqueeze(-1).expand(-1,-1,h.shape[-1])
+        if c.ndim == 2:
+            c = self.cond(c)
+            c = c.unsqueeze(-1).expand(-1,-1,h.shape[-1])
+        else:
+            c = self.cond_var(c)
         gamma, beta = c.chunk(2, dim=1)
         if self.use_scale:
             h = h*(1+gamma)
