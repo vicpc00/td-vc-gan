@@ -1,3 +1,4 @@
+
 import os
 import sys
 import shutil
@@ -12,11 +13,16 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+import util
+import util.yin as torchyin
+import util.crepe
+
 import torch.utils.tensorboard as tensorboard
 
 from model.generator import Generator
 from model.discriminator import MultiscaleDiscriminator
 from model.latent_classifier import LatentClassifier
+from model.f0_estimator import F0Estimator
 import data.dataset as dataset
 
 import util
@@ -24,6 +30,10 @@ import util.audio
 from util.hparams import HParam
 
 import util.losses
+#torch.autograd.set_detect_anomaly(False)
+
+#import timeit
+
 
 def label2onehot(labels, n_classes):
     #labels: (batch_size,)
@@ -139,8 +149,7 @@ def main():
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
         C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0])
-
-    
+ 
     if load_path != None:
         if args.epoch != None:
             load_file_base = 'step{}'.format(args.epoch)
@@ -154,6 +163,7 @@ def main():
             """
             
         print('Loading from {}'.format(load_path / '{}-G.pt'.format(load_file_base)))
+
         load_model(G, load_path / '{}-G.pt'.format(load_file_base))
         load_model(D, load_path / '{}-D.pt'.format(load_file_base))
         #G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
@@ -178,10 +188,15 @@ def main():
     if 'C' in locals():
         optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
         C.to(device)
-    
+
     if hp.train.freeze_subnets is not None and 'encoder' in hp.train.freeze_subnets:
         for param in G.encoder.parameters():
             param.requires_grad = False
+
+    need_target_signal = hp.train.lambda_f0 != 0
+    
+    f0_means = torch.zeros(train_dataset.num_spk).to(device)
+    f0_Ns = torch.zeros(train_dataset.num_spk).to(device)
 
     #require: model, data_loader, dataset, num_epoch, start_epoch=0
     #Train Loop
@@ -196,25 +211,51 @@ def main():
             c_src = label2onehot(label_src,train_dataset.num_spk)
             if hp.train.no_conv:
                 label_tgt = label_src
+                signal_real_tgt = signal_real
             else:
-                #Random target label
-                label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
+                if need_target_signal:
+                    perm = np.random.permutation(hp.train.batch_size)
+                    signal_real_tgt, label_tgt = signal_real[perm], label_src[perm]
+                else:
+                    #Random target label
+                    label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
             c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
-
+            
             #Send everything to device
             signal_real = signal_real.to(device)
             label_src = label_src.to(device)
             label_tgt = label_tgt.to(device)
             c_src = c_src.to(device)
             c_tgt = c_tgt.to(device)
+            if need_target_signal:
+                signal_real_tgt = signal_real_tgt.to(device)
+            
+            #f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+            f0_src, f0_src_activ = util.crepe.filtered_pitch(signal_real)
 
+            if hp.train.no_conv:
+                f0_conv_tgt = f0_src
+                f0_conv_tgt_activ = f0_src_activ
+            else:
+                f0_tgt = f0_src[perm]
+                
+                mu_tgt = torch.sum((f0_tgt>0)*torch.log(f0_tgt+1e-6), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6)
+                mu_src = torch.sum((f0_src>0)*torch.log(f0_src+1e-6), -1, keepdim=True)/(torch.sum(f0_src>0, -1, keepdim=True)+1e-6)
+                
+                f0_conv_tgt = torch.zeros(f0_src.shape).to(device)
+                f0_conv_tgt[f0_src>0] = torch.exp(torch.log(f0_src+1e-6) + mu_tgt - mu_src)[f0_src>0]
+                f0_conv_tgt_activ = util.roll_batches(f0_src_activ, util.crepe.get_shift(torch.exp(mu_src), torch.exp(mu_tgt)), 1)
+                
+            
+            c_f0_conv = util.f0_to_excitation(f0_conv_tgt, 64, sampling_rate=hp.model.sample_rate)
+            c_f0_src = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
             
             
             #Discriminator training
             if iter_count % hp.train.D_step_interval == 0:
                 
                 #Compute fake signal
-                signal_fake = G(signal_real,c_tgt,c_src)
+                signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
                 sig_real_cont_emb = G.content_embedding.clone()
                 
                 #Real signal losses
@@ -249,7 +290,7 @@ def main():
                 loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
                 loss['D_loss'] = d_loss.item()
             
-            
+
                 #Latent classifier step
                 if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
                     out_lat_cls = C(sig_real_cont_emb)
@@ -267,13 +308,13 @@ def main():
                 del out_adv_fake, out_adv_real, d_gan_loss
                 del d_loss
                 if hp.train.lambda_latcls != 0:
-                    del out_lat_cls, c_loss
-            
+                    del out_lat_cls, c_loss      
+
 
             #Generator training
             if iter_count % hp.train.G_step_interval == 0: #N steps of D for each steap of G
                 #Fake signal losses
-                signal_fake = G(signal_real,c_tgt,c_src)
+                signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
                 sig_real_cont_emb = G.content_embedding.clone()
                 out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt)
 
@@ -295,7 +336,7 @@ def main():
                 g_loss_rec = torch.zeros(1, device=device)
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec = G(signal_fake, c_src, c_src)
+                    signal_rec = G(signal_fake, c_src, c_var = c_f0_src)
                     
                     sig_fake_cont_emb = G.content_embedding.clone()
                     if hp.train.lambda_feat > 0:
@@ -316,7 +357,8 @@ def main():
                 g_loss_idt = torch.zeros(1, device=device)
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
-                        signal_idt = G(signal_real, c_src, c_src)
+                        signal_idt = G(signal_real, c_src, c_var = c_f0_src)
+
                     else:
                         signal_idt = signal_fake
                         
@@ -349,14 +391,63 @@ def main():
                     out_lat_cls = C(sig_real_cont_emb)
                     g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
                 else:
+
                     g_loss_lat_cls = torch.zeros(1, device=device)
+
+                    
+                #F0 loss
+                if hp.train.lambda_f0 != 0:
+                    #f0_tgt = torchyin.estimate(signal_real_tgt.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                    #f0_conv, voiced_conv = f0_est(signal_fake)
+                    # if epoch == start_epoch:
+                    #     f0_tgt_mean = torch.sum((f0_tgt>0)*(f0_tgt), (-2,-1))/(torch.sum(f0_tgt>0, (-2,-1))+1e-6)
+                    #     alpha = f0_Ns[label_tgt]/(f0_Ns[label_tgt]+1)
+                    #     f0_means[label_tgt] = alpha*f0_Ns[label_tgt] + (1-alpha)*f0_tgt_mean.detach()
+                    #     f0_Ns[label_tgt] = f0_Ns[label_tgt]+1
+                    
+                    #f0_conv = torchyin.estimate(signal_fake.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000, soft = True).to(device)
+                    f0_conv, f0_conv_activ = util.crepe.filtered_pitch(signal_fake)
+
+                    #f0_src, f0_tgt, f0_conv, f0_conv_tgt = f0_src/400, f0_tgt/400, f0_conv/400, f0_conv_tgt/400
+
+                    if False:
+                        #g_loss_f0 = torch.abs(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[voiced_conv>.5],-1))
+                        #g_loss_f0 = torch.pow(torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1) - torch.mean(torch.log(f0_conv[f0_conv>0]),-1), 2)
+                        #g_loss_f0 = torch.pow(torch.mean(f0_tgt[f0_tgt>0],-1) - torch.mean(f0_conv[f0_conv>0],-1), 2)
+                        g_loss_f0 = torch.pow(torch.sum((f0_tgt>0)*(f0_tgt), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6) -
+                                              torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/(torch.sum(f0_conv>0, -1, keepdim=True)+1e-6),2)
+                        g_loss_f0[g_loss_f0.isnan().detach()] = 0
+                        g_loss_f0 = torch.mean(g_loss_f0)
+
+                    else:
+                        #f0_src = torchyin.estimate(signal_real.cpu(), sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                        #mu_tgt = torch.mean(torch.log(f0_tgt[f0_tgt>0]),-1)
+                        #mu_src = torch.mean(torch.log(f0_src[f0_src>0]),-1)
+                        #mu_tgt = torch.nanmean(torch.log(torch.where(f0_tgt>0, f0_tgt, torch.nan)),-1, keepdim=True)
+                        #mu_src = torch.nanmean(torch.log(torch.where(f0_src>0, f0_src, torch.nan)),-1, keepdim=True)
+                        #mu_conv = torch.sum((f0_conv>0)*(f0_conv), -1, keepdim=True)/torch.sum(f0_conv>0, -1, keepdim=True)
+                        #mu_tgt = f0_means[label_tgt].view(mu_conv.shape)
+                        
+                        #f0_conv_alt = torch.zeros(f0_src.shape).to(device)
+                        #f0_conv_alt[f0_conv>0] = (f0_conv - mu_conv + mu_tgt)[f0_conv>0]
+                        
+                        #f0_conv_tgt = f0_src
+                        
+                        #g_loss_f0 = F.mse_loss(f0_conv[f0_conv>0],f0_conv_alt[f0_conv>0])
+                        #g_loss_f0 = F.mse_loss(f0_conv,f0_conv_tgt)
+                        g_loss_f0 = F.mse_loss(f0_conv_activ,f0_conv_tgt_activ.detach())
+                        
+                else:
+                    g_loss_f0 = torch.zeros(1, device=device)
+                    
                 
                 #Full loss
                 g_loss = g_loss_adv_fake + \
                          hp.train.lambda_rec*g_loss_rec + \
                          hp.train.lambda_idt*g_loss_idt + \
                          hp.train.lambda_latcls*g_loss_lat_cls + \
-                         hp.train.lambda_cont_emb*g_loss_cont_emb
+                         hp.train.lambda_cont_emb*g_loss_cont_emb + \
+                         hp.train.lambda_f0*g_loss_f0
 
                 #Optimize
                 optimizer_D.zero_grad()
@@ -368,14 +459,15 @@ def main():
                 optimizer_G.step()
                 
                 #Logging
+
                 #loss['G_loss_adv_fake'] = g_loss_adv_fake if type(g_loss_adv_fake) == int else g_loss_adv_fake.item() #Check if int because it can be 0
                 loss['G_loss_adv_fake'] = g_loss_adv_fake.item()
                 loss['G_loss_rec'] = g_loss_rec.item()
                 loss['G_loss_idt'] = g_loss_idt.item()
                 loss['G_loss_lat_cls'] = g_loss_lat_cls.item()
                 loss['G_loss_cont_emb'] = g_loss_cont_emb.item()
-                
-                
+                loss['g_loss_f0'] = g_loss_f0.item()
+         
                 del out_adv_fake_list
                 del out_adv_fake
                 del g_loss_adv_fake
@@ -395,7 +487,7 @@ def main():
                     print(', {}: {:.4f}'.format(label, value),end='')
                 print()
             iter_count += 1
-            
+
             
         if epoch % hp.log.val_interval == 0:
             print('Validation loop')
@@ -413,6 +505,9 @@ def main():
                         #Random target label
                         label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
                     c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
+                    
+                    f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                    c_f0 = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
         
                     #Send everything to device
                     signal_real = signal_real.to(device)
@@ -422,7 +517,7 @@ def main():
                     c_tgt = c_tgt.to(device)
                     
                     #Compute fake signal
-                    signal_fake = G(signal_real,c_tgt,c_src)
+                    signal_fake = G(signal_real, c_tgt, c_var = c_f0)
                     #Real signal losses
                     out_adv_real_list, features_real_list = D(signal_real, label_src)
                     #Fake signal losses
@@ -455,6 +550,7 @@ def main():
                     loss['val_D_loss'] = loss.setdefault('val_D_loss',0) + d_loss.item()
                     loss['val_G_loss'] = loss.setdefault('val_G_loss',0) + g_loss.item()
                     loss['val_C_acc'] = loss.setdefault('val_C_acc',0) + c_acc.item()
+                    #break
                     
             print('Val Epoch {}/{}, Itt {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
             for label, value in loss.items():
@@ -481,6 +577,8 @@ def main():
         #Gen exemples
         if epoch % hp.log.gen_interval == 0:
             print('Saving signals')
+            f0_ratios = torch.rand(hp.log.gen_num)*1.5 + 0.5
+            f0_ratios[0] = 1
             for i, data in enumerate(test_data_loader):
                 if i >= hp.log.gen_num:
                     break
@@ -490,20 +588,23 @@ def main():
                 label_tgt = label_src if hp.train.no_conv else torch.randint(train_dataset.num_spk,label_src.shape)
                 c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
                 
+                f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                c_f0 = util.f0_to_excitation(f0_src*f0_ratios[i], 64, sampling_rate=hp.model.sample_rate)
+                
                 signal_real = signal_real.to(device)
                 label_src = label_src.item()
                 label_tgt = label_tgt.item()
                 c_src = c_src.to(device)
                 c_tgt = c_tgt.to(device)
                 
-                signal_fake = G(signal_real,c_tgt,c_src)
-                signal_rec = G(signal_fake,c_src,c_tgt)
+                signal_fake = G(signal_real,c_tgt,c_var = c_f0)
+                signal_rec = G(signal_fake,c_src,c_var = c_f0)
                 
                 signal_real = signal_real.squeeze().cpu().detach().numpy()
                 signal_fake = signal_fake.squeeze().cpu().detach().numpy()
                 signal_rec  = signal_rec.squeeze().cpu().detach().numpy()
                 
-                sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_conv.wav'.format(epoch,i,label_src,label_tgt),signal_fake,hp.model.sample_rate)
+                sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_conv_r={:.2f}.wav'.format(epoch,i,label_src,label_tgt, f0_ratios[i]),signal_fake,hp.model.sample_rate)
                 sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_orig.wav'.format(epoch,i,label_src,label_tgt),signal_real,hp.model.sample_rate)
                 sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_rec.wav'.format(epoch,i,label_src,label_tgt),signal_rec,hp.model.sample_rate)
 

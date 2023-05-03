@@ -208,6 +208,8 @@ class Decoder(nn.Module):
         channel_sizes[0] += conditional_dim if not self.cin else 0
             
         leaky_relu_slope = 0.2
+        self.upsample_ratios = upsample_ratios
+        self.upsample_idxs = []
         
         if embedding_dim:
             model += [nn.LeakyReLU(leaky_relu_slope),
@@ -227,6 +229,7 @@ class Decoder(nn.Module):
                                                      stride = r,
                                                      padding=r // 2 + r % 2, #might only work for even r
                                                      output_padding=r % 2))]
+            self.upsample_idxs.append(len(model))
             for j in range(n_res_blocks): #wavenet resblocks
                 if not self.cin:
                     model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
@@ -244,10 +247,17 @@ class Decoder(nn.Module):
                                         kernel_size=7, padding=3,
                                         padding_mode='reflect')),
                   nn.Tanh()]
+        self.upsample_idxs.append(len(model)) #last element is size of model
         self.decoder = model
         #self.decoder = nn.Sequential(*model)
+    def get_scaled_conditioning(self, c):
+        scaled_c = [c]
+        for r in reversed(self.upsample_ratios):
+            scaled_c.append(F.avg_pool1d(scaled_c[-1], kernel_size=4*r+1, stride=r, padding=r*2))
+        return scaled_c
+            
         
-    def forward(self, x, c = None):
+    def forward(self, x, c = None, c_var = None):
         if not self.cin:
             if self.spk_conditioning:
                 c = c.unsqueeze(2).repeat(1,1,x.size(2))
@@ -255,7 +265,17 @@ class Decoder(nn.Module):
             for mod in self.decoder:
                 x = mod(x)
         else:
-            for mod in self.decoder:
+            if c_var is not None:
+                curr_scale = 0
+                c_var_scales = self.get_scaled_conditioning(c_var)
+                c = c.unsqueeze(2).repeat(1,1,x.size(2))
+                c = torch.cat([c, c_var_scales[-1]],dim=1)
+            
+            for i, mod in enumerate(self.decoder):
+                if i == self.upsample_idxs[curr_scale] and c_var is not None:
+                    c = c.repeat(1,1,self.upsample_ratios[curr_scale])
+                    curr_scale += 1
+                    c[:,-1:,:] = c_var_scales[-1-curr_scale]
                 if type(mod) in [CINResnetBlock, ConditionalInstanceNorm, FiLMResnetBlock]:
                     x = mod(x,c)
                 else:
@@ -339,7 +359,7 @@ class Generator(nn.Module):
             #x = self.bottleneck(x,c)
         return x
 
-    def forward(self,x,c_tgt, c_src = None):
+    def forward(self,x,c_tgt, c_src = None, c_var = None):
         c_tgt = self.embedding(c_tgt)
         c_src = self.embedding(c_src) if c_src != None else None
         
@@ -353,7 +373,7 @@ class Generator(nn.Module):
         else:
             x = self._bottleneck(x,c_tgt)
         
-        x = self.decoder(x,c_tgt)
+        x = self.decoder(x,c_tgt, c_var)
         
 #        if self.output_content_emb:
 #            return x, content_emb
