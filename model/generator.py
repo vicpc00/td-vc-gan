@@ -265,12 +265,11 @@ class Decoder(nn.Module):
 
 class Generator(nn.Module):
     def __init__(self, decoder_ratios, decoder_channels, 
-                 num_bottleneck_layers, num_classes, conditional_dim, content_dim = None,
+                 num_bottleneck_layers, num_classes, conditional_dim, content_dim = None, num_res_blocks = 3,
                  norm_layer = None, weight_norm = None, #either None, str or (str,str,str)
                  bot_cond = 'target', enc_cond = None, dec_cond = None, 
                  output_content_emb = False):
         super().__init__()
-        num_res_blocks = 3
         
         self.output_content_emb = output_content_emb
         
