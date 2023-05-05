@@ -214,7 +214,7 @@ def main():
                 signal_real_tgt = signal_real
             else:
                 if need_target_signal:
-                    perm = np.random.permutation(hp.train.batch_size)
+                    perm = np.random.permutation(signal_real.shape[0])
                     signal_real_tgt, label_tgt = signal_real[perm], label_src[perm]
                 else:
                     #Random target label
