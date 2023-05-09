@@ -1,6 +1,7 @@
 import os
 import argparse
 from pathlib import Path
+import re
 
 import soundfile as sf
 
@@ -33,14 +34,28 @@ def parse_args():
     parser.add_argument('--data_file', default='test_files')
     parser.add_argument('--config_file', default=None)
     parser.add_argument('--epoch', default=None)
+    parser.add_argument('--data_format', default='vctk')
     args = parser.parse_args()
     return args
 
-def main():
-    args = parse_args()
-    save_path = Path(args.save_path)
-    data_path = Path(args.data_path)
-    load_path = Path(args.load_path)
+def parse_fn(filename, dataset_format):
+    if dataset_format == 'vctk':
+        src_spk, phrase_id = re.match(r'(\S+)_(\d+).wav',os.path.basename(filename)).groups()
+    elif dataset_format == 'alcaim':
+        src_spk, phrase_id = re.match(r'(\S+)-(\d+).wav',os.path.basename(filename)).groups()
+    elif dataset_format == 'smt':
+        phrase_id = re.match(r'list(\S+).wav',os.path.basename(filename)).group(1)
+    else:
+        phrase_id = os.path.splitext(filename)[0]
+        
+    return phrase_id
+
+
+def generate_signals(save_path, data_path, load_path, config_file = None, data_file = 'test_files', epoch = None, dataset_format = 'vctk'):
+
+    save_path = Path(save_path)
+    data_path = Path(data_path)
+    load_path = Path(load_path)
     
     if args.config_file != None:
         hp = HParam(args.config_file)
@@ -52,7 +67,9 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     
-    test_dataset = dataset.WaveDataset(data_path / args.data_file, data_path / 'speakers', sample_rate=hp.model.sample_rate, add_new_spks=True)
+    test_dataset = dataset.WaveDataset(data_path / args.data_file, data_path / 'speakers', 
+                                       sample_rate=hp.model.sample_rate, add_new_spks=True, 
+                                       normalization_db=hp.train.normalization_db)
     test_data_loader = torch.utils.data.DataLoader(test_dataset,
                                    batch_size=1,
                                    num_workers=1,
@@ -69,11 +86,12 @@ def main():
     #print(test_dataset.spk_reverse_dict)
     #print(test_data_loader.dataset.dataset)
     
-    speaker_datasets = {}
     speaker_dataloaders = {}
     for spk_id in ds_spks:
         spk_label = test_dataset.spk_reverse_dict[spk_id]
-        speaker_dataset = dataset.SpeakerDataset(spk_label, data_path / args.data_file, data_path / 'speakers', sample_rate=hp.model.sample_rate, add_new_spks=True)
+        speaker_dataset = dataset.SpeakerDataset(spk_label, data_path / args.data_file, data_path / 'speakers', 
+                                                 sample_rate=hp.model.sample_rate, add_new_spks=True, 
+                                                 normalization_db=hp.train.normalization_db)
         speaker_dataloader = torch.utils.data.DataLoader(speaker_dataset,
                                                             batch_size=1,
                                                             num_workers=1,
@@ -89,6 +107,8 @@ def main():
                   hp.model.generator.num_bottleneck_layers,
                   test_dataset.num_spk, 
                   hp.model.generator.conditional_dim,
+                  hp.model.generator.content_dim,
+                  hp.model.generator.num_res_blocks,
                   norm_layer = (nl.bottleneck, nl.encoder, nl.decoder),
                   weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
                   bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder).to(device)
@@ -97,19 +117,18 @@ def main():
     print('Loading from {}'.format(load_path / g_file))
     G.load_state_dict(torch.load(load_path / g_file, map_location=lambda storage, loc: storage))
     
+    speaker_dataloader_iters = {spk_id: iter(dl) for spk_id, dl in speaker_dataloaders.items()}
+    
     for i, data in tqdm(enumerate(test_data_loader)):
-        
-        speaker_dataloader_iters = {spk_id: iter(dl) for spk_id, dl in speaker_dataloaders.items()}
-        
+                
         signal_real, label_src = data
         c_src = label2onehot(label_src,test_dataset.num_spk)
         signal_real = signal_real.to(device)
         c_src = c_src.to(device)
         label_src = label_src.item()
         file_name = test_data_loader.dataset.get_filename(i)
-        base_name = os.path.splitext(file_name)[0]
-        #print(i, file_name, label_src)
-        #print(type(signal_real))
+        
+        phrase_id = parse_fn(file_name, dataset_format)
         
         #f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
         f0_src, _ = util.crepe.filtered_pitch(signal_real, "viterbi")
@@ -117,8 +136,11 @@ def main():
         
         
         for tgt_spk in ds_spks:
-            signal_tgt, label_tgt = next(speaker_dataloader_iters[tgt_spk])
-            
+            try:
+                signal_tgt, label_tgt = next(speaker_dataloader_iters[tgt_spk])
+            except StopIteration:
+                speaker_dataloader_iters[tgt_spk] = iter(speaker_dataloaders[tgt_spk])
+                signal_tgt, label_tgt = next(speaker_dataloader_iters[tgt_spk])
             #label_tgt = torch.tensor([tgt_spk])
             c_tgt = label2onehot(label_tgt,test_dataset.num_spk)
             #print(c_src, c_tgt)
@@ -143,11 +165,12 @@ def main():
             
             #sf.write(save_path / 'sig{:02d}_{:1d}-{:1d}_conv.wav'.format(i,label_src,label_tgt),signal_fake,hp.model.sample_rate)
             #sf.write(save_path / '{}_{:1d}-{:1d}_conv.wav'.format(base_name,label_src,label_tgt),signal_fake,hp.model.sample_rate)
-            sf.write(save_path / '{}_{}-{}_conv.wav'.format(base_name,test_dataset.spk_reverse_dict[label_src],test_dataset.spk_reverse_dict[label_tgt]),signal_fake,hp.model.sample_rate)
+            sf.write(save_path / '{}-{}-{}-conv.wav'.format(phrase_id,test_dataset.spk_reverse_dict[label_src],test_dataset.spk_reverse_dict[label_tgt]),signal_fake,hp.model.sample_rate)
             
         signal_real = signal_real.squeeze().cpu().detach().numpy()
         #sf.write(save_path / 'sig{:02d}_{:1d}-X_orig.wav'.format(i,label_src),signal_real,hp.model.sample_rate)
-        sf.write(save_path / '{}_{}-X_orig.wav'.format(base_name,test_dataset.spk_reverse_dict[label_src]),signal_real,hp.model.sample_rate)
+        sf.write(save_path / '{}-{}-X-orig.wav'.format(phrase_id,test_dataset.spk_reverse_dict[label_src]),signal_real,hp.model.sample_rate)
 
 if __name__ == '__main__':
-    main()
+    args = parse_args()
+    generate_signals(args.save_path, args.data_path, args.load_path, args.config_file, args.data_file, args.epoch, args.data_format)
