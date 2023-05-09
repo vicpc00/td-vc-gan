@@ -276,7 +276,7 @@ class Decoder(nn.Module):
                 c = torch.cat([c, c_var_scales[-1]],dim=1)
             
             for i, mod in enumerate(self.decoder):
-                if i == self.upsample_idxs[curr_scale] and c_var is not None:
+                if c_var is not None and i == self.upsample_idxs[curr_scale]:
                     c = c.repeat(1,1,self.upsample_ratios[curr_scale])
                     curr_scale += 1
                     c[:,-1:,:] = c_var_scales[-1-curr_scale]
