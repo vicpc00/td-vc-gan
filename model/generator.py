@@ -254,10 +254,20 @@ class Decoder(nn.Module):
         self.upsample_idxs.append(len(model)) #last element is size of model
         self.decoder = model
         #self.decoder = nn.Sequential(*model)
+        
+        #Filter to downsample f0 excitation signal
+        for r in set(self.upsample_ratios):
+            L = 16*r
+            f = util.kaiser_filter(L, 1/r)
+            self.register_buffer(f'down_filter_{r}', f, persistent=False)
+        
     def get_scaled_conditioning(self, c):
+        
         scaled_c = [c]
         for r in reversed(self.upsample_ratios):
-            scaled_c.append(F.avg_pool1d(scaled_c[-1], kernel_size=4*r+1, stride=r, padding=r*2))
+            f = self.get_buffer(f'down_filter_{r}')
+            scaled_c.append(F.conv1d(scaled_c[-1], f, stride=r, padding=8*r))
+            #scaled_c.append(F.avg_pool1d(scaled_c[-1], kernel_size=4*r+1, stride=r, padding=r*2))
         return scaled_c
             
         

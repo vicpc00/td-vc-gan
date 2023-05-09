@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import torch
 import torch.nn as nn
@@ -92,4 +93,15 @@ def roll_batches(input, shifts, dim):
     idx = (idx - shifts.view(view)) % input.shape[dim]
     
     return torch.gather(input, dim, idx)
+
+def kaiser_filter(L, w):
+    
+    n = torch.arange(-L//2, L//2+1).float()
+    f = torch.sin(math.pi*w*n)/(math.pi*n + 1e-8)
+    f[n.shape[0]//2] = w
+    f = f*torch.kaiser_window(L+1, False, 2.5)
+    f = f/torch.sum(f)
+    f = f.view(1,1,-1)
+    
+    return f
 
