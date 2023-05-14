@@ -138,7 +138,7 @@ def main():
                                 hp.model.discriminator.conditional_spks)
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
-        C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0])
+        C = LatentClassifier(train_dataset.num_spk,hp.model.generator.content_dim)
 
     
     if load_path != None:
