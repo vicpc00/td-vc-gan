@@ -19,7 +19,11 @@ from model.discriminator import MultiscaleDiscriminator
 from model.latent_classifier import LatentClassifier
 import data.dataset as dataset
 
+import util
+import util.audio
 from util.hparams import HParam
+
+import util.losses
 
 def label2onehot(labels, n_classes):
     #labels: (batch_size,)
@@ -39,6 +43,20 @@ def parse_args():
     parser.add_argument('--epoch', default=None)
     args = parser.parse_args()
     return args
+
+def load_model(model, path):
+    state_dict = torch.load(path, map_location=lambda storage, loc: storage)
+    try:
+        model.load_state_dict(state_dict)
+    except RuntimeError:
+        print(f'Warning: default loading for {path} failed. Trying permisive load')
+        messages = util.load_possible(model, state_dict)
+        for msg_type in messages:
+            if msg_type in ['matched']:
+                continue
+            for msg in messages[msg_type]:
+                print(f'{msg_type}: {msg}')
+        
 
 #Random seed updater for workers. 
 #See https://tanelp.github.io/posts/a-bug-that-plagues-thousands-of-open-source-ml-projects/
@@ -77,9 +95,10 @@ def main():
     print(device)
 
     train_dataset = dataset.WaveDataset(data_path / 'train_files', data_path / 'speakers', sample_rate=hp.model.sample_rate, 
-                                        max_segment_size = hp.train.max_segment, augment_noise = 1e-9)
+                                        max_segment_size = hp.train.max_segment, augment_noise = 1e-9, 
+                                        normalization_db = hp.train.normalization_db)
     test_dataset = dataset.WaveDataset(data_path / 'test_files', data_path / 'speakers', sample_rate=hp.model.sample_rate,
-                                        max_segment_size = hp.test.max_segment)
+                                        max_segment_size = hp.test.max_segment, normalization_db = hp.train.normalization_db)
 
     train_data_loader = torch.utils.data.DataLoader(train_dataset,
                                    batch_size=hp.train.batch_size,
@@ -103,10 +122,12 @@ def main():
                   hp.model.generator.num_bottleneck_layers,
                   train_dataset.num_spk, 
                   hp.model.generator.conditional_dim,
+                  hp.model.generator.content_dim,
+                  hp.model.generator.num_res_blocks,
                   norm_layer = (nl.bottleneck, nl.encoder, nl.decoder),
                   weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
                   bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder,
-                  output_content_emb = latent_classier).to(device)
+                  output_content_emb = latent_classier)
     D = MultiscaleDiscriminator(hp.model.discriminator.num_disc,
                                 train_dataset.num_spk,
                                 hp.model.discriminator.num_layers,
@@ -114,10 +135,10 @@ def main():
                                 hp.model.discriminator.num_channel_mult,
                                 hp.model.discriminator.downsampling_factor,
                                 hp.model.discriminator.conditional_dim,
-                                hp.model.discriminator.conditional_spks).to(device)
+                                hp.model.discriminator.conditional_spks)
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
-        C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0]).to(device)
+        C = LatentClassifier(train_dataset.num_spk,hp.model.generator.content_dim)
 
     
     if load_path != None:
@@ -133,20 +154,30 @@ def main():
             """
             
         print('Loading from {}'.format(load_path / '{}-G.pt'.format(load_file_base)))
-        G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
-        D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        load_model(G, load_path / '{}-G.pt'.format(load_file_base))
+        load_model(D, load_path / '{}-D.pt'.format(load_file_base))
+        #G.load_state_dict(torch.load(load_path / '{}-G.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        #D.load_state_dict(torch.load(load_path / '{}-D.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
 
-        if 'C' in locals() and os.path.exists(load_path / '{}-C.pt'.format(load_file_base)):
-            C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+        if 'C' in locals():
+            if os.path.exists(load_path / '{}-C.pt'.format(load_file_base)):
+                load_model(C, load_path / '{}-C.pt'.format(load_file_base))
+            #C.load_state_dict(torch.load(load_path / '{}-C.pt'.format(load_file_base), map_location=lambda storage, loc: storage))
+            
     else:
         start_epoch = 0
+    #print(G)
+        
+    #Send models to device
+    G.to(device)
+    D.to(device)       
 
     optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
     optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
 
     if 'C' in locals():
         optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
-    
+        C.to(device)
     
     if hp.train.freeze_subnets is not None and 'encoder' in hp.train.freeze_subnets:
         for param in G.encoder.parameters():
@@ -177,195 +208,179 @@ def main():
             c_src = c_src.to(device)
             c_tgt = c_tgt.to(device)
 
-            #Compute fake signal
-            signal_fake = G(signal_real,c_tgt,c_src)
+            
             
             #Discriminator training
-            #Real signal losses
-            out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
-            #print(out_adv)
-            #print(label_src.shape, out_cls_real_list[0].shape)
-            """
-            d_loss_cls_real = 0
-            for out_cls_real in out_cls_real_list:
-                #d_loss_cls_real += F.cross_entropy(out_cls_real, label_src)
-                d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-            """
-            #Fake signal losses
-            out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
-            """
-            d_loss_cls_fake = 0
-            for out_cls_fake in out_cls_fake_list:
-                d_loss_cls_fake += F.cross_entropy(out_cls_real, label_src)
-            """
-
-            #if hp.train.gan_loss == 'lsgan':
-            d_loss_adv_real = 0
-            d_loss_adv_fake = 0
-            for out_adv_fake, out_adv_real in zip(out_adv_fake_list,out_adv_real_list):
-                d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
-                d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
-            d_gan_loss = d_loss_adv_real + d_loss_adv_fake
-            
-            d_loss_cls_real = 0
-            d_loss_cls_fake = 0
-            for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
-                d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-                d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
-            d_loss_cls = d_loss_cls_real+d_loss_cls_fake
-            
-            
-            #Full loss
-            d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
-            #Optimize
-            optimizer_D.zero_grad()
-            d_loss.backward()
-            if hp.train.grad_max_norm_D is not None:
-                torch.nn.utils.clip_grad_norm_(D.parameters(),hp.train.grad_max_norm_D)
-            optimizer_D.step()
-
-            #Logging
-            loss['D_loss_adv_real'] = d_loss_adv_real.item()
-            loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
-            loss['D_loss_cls_real'] = d_loss_cls_real.item()
-            loss['D_loss_cls_fake'] = d_loss_cls_fake.item()
-            
-            #D_grad_norm = sum([param.grad.norm().item() for param in D.parameters()])
-            D_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in D.parameters()])).item()
-            loss['D_loss_grad_norm'] = D_grad_norm
-            
-            #Latent classifier step
-            if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
-                sig_cont_emb = G.content_embedding
-                out_lat_cls = C(sig_cont_emb)
-                c_loss = F.cross_entropy(out_lat_cls,label_src)
+            if iter_count % hp.train.D_step_interval == 0:
                 
-                optimizer_C.zero_grad()
-                c_loss.backward()
-                optimizer_C.step()
+                #Compute fake signal
+                signal_fake = G(signal_real,c_tgt,c_src)
+                sig_real_cont_emb = G.content_embedding.clone()
+                
+                #Real signal losses
+                out_adv_real_list, features_real_list = D(signal_real, label_src)
+                #Fake signal losses
+                out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt)
+                
+                d_loss_adv_real = 0
+                d_loss_adv_fake = 0
+                for i, (out_adv_fake, out_adv_real) in enumerate(zip(out_adv_fake_list,out_adv_real_list)):
+                    d_loss_adv_real_ = F.mse_loss(out_adv_real,torch.ones(out_adv_real.size(), device=device))
+                    d_loss_adv_fake_ = F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size(), device=device))
+                    #loss[f'D_loss_adv_real_{i}'] = d_loss_adv_real_.item()
+                    #loss[f'D_loss_adv_fake_{i}'] = d_loss_adv_fake_.item()
+                    d_loss_adv_real += d_loss_adv_real_
+                    d_loss_adv_fake += d_loss_adv_fake_
+                    
+                d_gan_loss = d_loss_adv_real + d_loss_adv_fake
+                
+                
+                #Full loss
+                d_loss = d_gan_loss
+                #Optimize
+                optimizer_D.zero_grad()
+                d_loss.backward()
+                if hp.train.grad_max_norm_D is not None:
+                    torch.nn.utils.clip_grad_norm_(D.parameters(),hp.train.grad_max_norm_D)
+                optimizer_D.step()
+    
+                #Logging
+                loss['D_loss_adv_real'] = d_loss_adv_real.item()
+                loss['D_loss_adv_fake'] = d_loss_adv_fake.item()
+                loss['D_loss'] = d_loss.item()
             
-                loss['C_loss'] = c_loss.item()
-                loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
             
-            del out_adv_real_list, out_cls_real_list
-            del out_adv_fake_list, out_cls_fake_list, features_fake_list
-            del out_adv_fake, out_adv_real, d_gan_loss
-            del out_cls_real, out_cls_fake, d_loss_cls
-            del d_loss
-            if hp.train.lambda_latcls != 0:
-                del out_lat_cls, c_loss
+                #Latent classifier step
+                if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
+                    out_lat_cls = C(sig_real_cont_emb)
+                    c_loss = F.cross_entropy(out_lat_cls,label_src)
+                    
+                    optimizer_C.zero_grad()
+                    c_loss.backward()
+                    optimizer_C.step()
+                
+                    loss['C_loss'] = c_loss.item()
+                    loss['C_acc'] = torch.sum(torch.argmax(out_lat_cls,dim=1) == label_src)/hp.train.batch_size
+                
+                del out_adv_real_list
+                del out_adv_fake_list, features_fake_list
+                del out_adv_fake, out_adv_real, d_gan_loss
+                del d_loss
+                if hp.train.lambda_latcls != 0:
+                    del out_lat_cls, c_loss
             
 
             #Generator training
-            if iter_count % hp.train.D_to_G_train_ratio == 0: #N steps of D for each steap of G
-
+            if iter_count % hp.train.G_step_interval == 0: #N steps of D for each steap of G
                 #Fake signal losses
                 signal_fake = G(signal_real,c_tgt,c_src)
                 sig_real_cont_emb = G.content_embedding.clone()
-                out_adv_fake_list, out_cls_fake_list, _ = D(signal_fake,c_tgt,c_src)
-                #if hp.train.gan_loss == 'lsgan':
-                g_loss_adv_fake = 0
-                g_loss_cls_fake = 0
-                for out_adv_fake, out_cls_fake in zip(out_adv_fake_list, out_cls_fake_list):
-                    g_loss_adv_fake += F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size()).to(device))
-                    #g_loss_cls_fake += F.cross_entropy(out_cls_fake, label_tgt)
-                    g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
+                out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt)
+
+                g_loss_adv_fake = torch.zeros(1, device=device)
+                for i, out_adv_fake in enumerate(out_adv_fake_list):
+                    g_loss_adv_fake_ = F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size(), device=device))
+                    #loss[f'G_loss_adv_fake_{i}'] = g_loss_adv_fake_
+                    g_loss_adv_fake += g_loss_adv_fake_
                     
+                if hp.train.lambda_rec > 0 or hp.train.lambda_idt > 0:
+                    #Real signal losses
+                    if hp.train.jitter_amp > 0:
+                        signal_real_jitter = util.audio.add_jitter(signal_real, hp.train.jitter_amp)
+                    else:
+                        signal_real_jitter = signal_real
+                    if hp.train.lambda_feat > 0:
+                        _, features_real_list = D(signal_real_jitter, label_src)
+                    
+                g_loss_rec = torch.zeros(1, device=device)
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec = G(signal_fake, c_src, c_tgt)
-                    if hp.train.rec_loss == 'feat':
-                        _, _, features_rec_list = D(signal_rec,c_src,c_tgt)
-                        g_loss_rec = 0
-                        for features_rec, features_real in zip(features_rec_list, features_real_list):
-                            for feat_rec, feat_real in zip(features_rec, features_real):
-                                g_loss_rec += torch.mean(torch.abs(feat_rec - feat_real.detach()))#L1 Loss
-                    else:
-                        g_loss_rec = torch.mean(torch.abs(signal_real - signal_rec))#L1 Loss
+                    signal_rec = G(signal_fake, c_src, c_src)
+                    
+                    sig_fake_cont_emb = G.content_embedding.clone()
+                    if hp.train.lambda_feat > 0:
+                        _, features_rec_list = D(signal_rec, label_src)
+                        g_loss_rec_feat = util.losses.multiscale_feat_loss(features_rec_list, features_real_list ,norm_p = 1)
+                        g_loss_rec += g_loss_rec_feat
+                        loss['G_loss_rec_feat'] = g_loss_rec_feat
+                    if hp.train.lambda_spec > 0:
+                        g_loss_rec_spec = util.losses.multiscale_spec_loss(signal_rec, signal_real_jitter, [2048, 1024, 512])
+                        g_loss_rec += g_loss_rec_spec
+                        loss['G_loss_rec_spec'] = g_loss_rec_spec
+                    if hp.train.lambda_wave > 0:
+                        g_loss_rec_wave = torch.mean(torch.abs(signal_real - signal_rec))#L1 Loss
+                        g_loss_rec += g_loss_rec_wave
+                        loss['G_loss_rec_wave'] = g_loss_rec_wave
 
-                else:
-                    g_loss_rec = 0
-
-                #Content embedding loss
-                if hp.train.lambda_cont_emb > 0:
-                    sig_fake_cont_emb = G.encoder(signal_fake)
-                    g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
-                else:
-                    g_loss_cont_emb = 0
-
-                    #Identity loss
+                #Identity loss
+                g_loss_idt = torch.zeros(1, device=device)
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
                         signal_idt = G(signal_real, c_src, c_src)
                     else:
                         signal_idt = signal_fake
-                    if hp.train.rec_loss == 'feat':
-                        _, _, features_idt_list = D(signal_idt,c_src,c_src)
-                        g_loss_idt = 0
-                        for features_idt, features_real in zip(features_idt_list, features_real_list):
-                            for feat_idt, feat_real in zip(features_idt, features_real):
-                                g_loss_idt += torch.mean(torch.abs(feat_idt - feat_real.detach()))#L1 Loss
-                    else:
-                        g_loss_idt = torch.mean(torch.abs(signal_real - signal_idt))#L1 Loss
+                        
+                    if hp.train.lambda_feat > 0:
+                        _, features_idt_list = D(signal_idt, label_src)
+                        g_loss_idt_feat = util.losses.multiscale_feat_loss(features_idt_list, features_real_list ,norm_p = 1)
+                        g_loss_idt += g_loss_idt_feat
+                        loss['G_loss_idt_feat'] = g_loss_idt_feat
+                    if hp.train.lambda_spec > 0:
+                        g_loss_idt_spec = util.losses.multiscale_spec_loss(signal_idt, signal_real_jitter, [2048, 1024, 512])
+                        g_loss_idt += g_loss_idt_spec
+                        loss['G_loss_idt_spec'] = g_loss_idt_spec
+                    if hp.train.lambda_wave > 0:
+                        g_loss_idt_wave = torch.mean(torch.abs(signal_real - signal_idt))#L1 Loss
+                        g_loss_rec += g_loss_idt_wave
+                        loss['G_loss_idt_wave'] = g_loss_idt_wave
+                
+
+                #Content embedding loss
+                if hp.train.lambda_cont_emb > 0:
+                    if hp.train.lambda_rec == 0:    
+                        sig_fake_cont_emb = G.encoder(signal_fake)
+                    g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
                 else:
-                    g_loss_idt = 0
+                    g_loss_cont_emb = torch.zeros(1, device=device)
+
                     
                 #Latent classification loss
                 if hp.train.lambda_latcls != 0:
                     out_lat_cls = C(sig_real_cont_emb)
                     g_loss_lat_cls = F.cross_entropy(out_lat_cls,label_src)
                 else:
-                    g_loss_lat_cls = 0
+                    g_loss_lat_cls = torch.zeros(1, device=device)
                 
                 #Full loss
                 g_loss = g_loss_adv_fake + \
-                         hp.train.lambda_cls*g_loss_cls_fake + \
                          hp.train.lambda_rec*g_loss_rec + \
                          hp.train.lambda_idt*g_loss_idt + \
                          hp.train.lambda_latcls*g_loss_lat_cls + \
                          hp.train.lambda_cont_emb*g_loss_cont_emb
-                #g_loss = g_loss_adv_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_rec*hp.train.lambda_idt*g_loss_idt
-                #g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake + hp.train.lambda_rec*g_loss_rec + hp.train.lambda_feat*g_loss_feat
+
                 #Optimize
                 optimizer_D.zero_grad()
                 optimizer_G.zero_grad()
                 g_loss.backward()
-
-                """                
-                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
-                if G_grad_norm != G_grad_norm:
-                    dump = {}
-                    dump['signal_fake'] = signal_fake
-                    dump['signal_real'] = signal_real
-                    dump['grad'] = [param.grad for param in G.parameters()]
-                    dump['G_state_dict'] = G.state_dict()
-                    dump['D_state_dict'] = D.state_dict()
-                    with open(save_path / 'dump','wb') as f:
-                        pickle.dump(dump,f)
-                    raise Exception('NaN Error')
-                """
                 
                 if hp.train.grad_max_norm_G is not None:
                     torch.nn.utils.clip_grad_norm_(G.parameters(),hp.train.grad_max_norm_G)
                 optimizer_G.step()
                 
                 #Logging
-                loss['G_loss_adv_fake'] = g_loss_adv_fake if type(g_loss_adv_fake) == int else g_loss_adv_fake.item() #Check if int because it can be 0
-                loss['G_loss_cls_fake'] = g_loss_cls_fake if type(g_loss_cls_fake) == int else g_loss_cls_fake.item()
-                loss['G_loss_rec'] = g_loss_rec if type(g_loss_rec) == int else g_loss_rec.item()
-                loss['G_loss_idt'] = g_loss_idt if type(g_loss_idt) == int else g_loss_idt.item()
-                loss['G_loss_lat_cls'] = g_loss_lat_cls if type(g_loss_lat_cls) == int else g_loss_lat_cls.item()
-                loss['G_loss_cont_emb'] = g_loss_cont_emb if type(g_loss_cont_emb) == int else g_loss_cont_emb.item()
+                #loss['G_loss_adv_fake'] = g_loss_adv_fake if type(g_loss_adv_fake) == int else g_loss_adv_fake.item() #Check if int because it can be 0
+                loss['G_loss_adv_fake'] = g_loss_adv_fake.item()
+                loss['G_loss_rec'] = g_loss_rec.item()
+                loss['G_loss_idt'] = g_loss_idt.item()
+                loss['G_loss_lat_cls'] = g_loss_lat_cls.item()
+                loss['G_loss_cont_emb'] = g_loss_cont_emb.item()
                 
-                #G_grad_norm = sum([param.grad.norm().item() for param in G.parameters()])
-#                G_grad_norm = torch.norm(torch.stack([param.grad.norm() for param in G.parameters()])).item()
-#                loss['G_loss_grad_norm'] = G_grad_norm
                 
-                del out_adv_fake_list, out_cls_fake_list
-                del out_adv_fake, out_cls_fake
-                del g_loss_adv_fake, g_loss_cls_fake
+                del out_adv_fake_list
+                del out_adv_fake
+                del g_loss_adv_fake
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
-                    del features_rec_list, features_rec, features_real, feat_rec, feat_real, g_loss_rec
+                    del features_rec_list, g_loss_rec
                 if hp.train.lambda_idt > 0:
                     del g_loss_idt, features_idt_list
                 del g_loss
@@ -375,10 +390,13 @@ def main():
                 #print(torch.cuda.memory_summary(device=None, abbreviated=False))
                 print('Epoch {}/{}, Itt {}'.format(epoch, hp.train.num_epoch, iter_count), end='')
                 for label, value in loss.items():
+                    #print(', {}: {}'.format(label, value))
                     logger.add_scalar(label,value,iter_count)
                     print(', {}: {:.4f}'.format(label, value),end='')
                 print()
             iter_count += 1
+            
+            
         if epoch % hp.log.val_interval == 0:
             print('Validation loop')
             G.eval()
@@ -386,6 +404,7 @@ def main():
             loss = {}
             with torch.no_grad():
                 for i, data in enumerate(val_data_loader):
+                    
                     signal_real, label_src = data
                     c_src = label2onehot(label_src,train_dataset.num_spk)
                     if hp.train.no_conv:
@@ -405,27 +424,18 @@ def main():
                     #Compute fake signal
                     signal_fake = G(signal_real,c_tgt,c_src)
                     #Real signal losses
-                    out_adv_real_list, out_cls_real_list, features_real_list = D(signal_real,c_src,c_tgt)
+                    out_adv_real_list, features_real_list = D(signal_real, label_src)
                     #Fake signal losses
-                    out_adv_fake_list, out_cls_fake_list, features_fake_list = D(signal_fake.detach(),c_tgt,c_src)
+                    out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt)
                     
                     d_loss_adv_real = 0
                     d_loss_adv_fake = 0
                     g_loss_adv_fake = 0
                     for out_adv_fake, out_adv_real in zip(out_adv_fake_list,out_adv_real_list):
-                        d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size()).to(device))
-                        d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size()).to(device))
-                        g_loss_adv_fake += F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size()).to(device))
+                        d_loss_adv_real += F.mse_loss(out_adv_real,torch.ones(out_adv_real.size(), device=device))
+                        d_loss_adv_fake += F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size(), device=device))
+                        g_loss_adv_fake += F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size(), device=device))
                     d_gan_loss = d_loss_adv_real + d_loss_adv_fake
-                    
-                    d_loss_cls_real = 0
-                    d_loss_cls_fake = 0
-                    g_loss_cls_fake = 0
-                    for out_cls_real,out_cls_fake in zip(out_cls_real_list,out_cls_fake_list):
-                        d_loss_cls_real += F.mse_loss(out_cls_real,torch.ones(out_cls_real.size()).to(device))
-                        d_loss_cls_fake += F.mse_loss(out_cls_fake,torch.zeros(out_cls_fake.size()).to(device))
-                        g_loss_cls_fake += F.mse_loss(out_cls_fake,torch.ones(out_cls_fake.size()).to(device))
-                    d_loss_cls = d_loss_cls_real+d_loss_cls_fake
                     
                     if 'C' in locals():
                         sig_cont_emb = G.content_embedding
@@ -436,13 +446,11 @@ def main():
                         g_loss_lat_cls = torch.tensor([0])
                         c_acc = torch.tensor([0])
                     
-                    d_loss = d_gan_loss + hp.train.lambda_cls*d_loss_cls
-                    g_loss = g_loss_adv_fake + hp.train.lambda_cls*g_loss_cls_fake
+                    d_loss = d_gan_loss
+                    g_loss = g_loss_adv_fake
                     
                     loss['val_loss_adv_real'] = loss.setdefault('val_loss_adv_real',0) + d_loss_adv_real.item()
                     loss['val_loss_adv_fake'] = loss.setdefault('val_loss_adv_fake',0) + d_loss_adv_fake.item()
-                    loss['val_loss_cls_real'] = loss.setdefault('val_loss_cls_real',0) + d_loss_cls_real.item()
-                    loss['val_loss_cls_fake'] = loss.setdefault('val_loss_cls_fake',0) + d_loss_cls_fake.item()
                     loss['val_loss_lat_cls'] = loss.setdefault('val_loss_lat_cls',0) + g_loss_lat_cls.item()
                     loss['val_D_loss'] = loss.setdefault('val_D_loss',0) + d_loss.item()
                     loss['val_G_loss'] = loss.setdefault('val_G_loss',0) + g_loss.item()
