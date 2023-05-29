@@ -106,7 +106,7 @@ def main():
 
     train_dataset = dataset.WaveDataset(data_path / 'train_files', data_path / 'speakers', sample_rate=hp.model.sample_rate, 
                                         max_segment_size = hp.train.max_segment, augment_noise = 1e-9, 
-                                        normalization_db = hp.train.normalization_db)
+                                        normalization_db = hp.train.normalization_db, data_augment = True)
     test_dataset = dataset.WaveDataset(data_path / 'test_files', data_path / 'speakers', sample_rate=hp.model.sample_rate,
                                         max_segment_size = hp.test.max_segment, normalization_db = hp.train.normalization_db)
 
