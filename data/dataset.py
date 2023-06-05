@@ -30,6 +30,7 @@ class WaveDataset(Dataset):
         self.sr = sample_rate
         self.return_index = return_index
         self.max_segment_size = max_segment_size
+        self.min_segment_size = 128*32
         self.augment = False
         
         self.augment_noise = augment_noise
@@ -80,6 +81,9 @@ class WaveDataset(Dataset):
                 #idx = torch.randint(signal.shape[0] - self.max_segment_size, (1,)).item()
                 aux_sig = signal[idx:idx+self.max_segment_size]
             signal = aux_sig
+        if signal.shape[0] < self.min_segment_size:
+            #print(file_path, signal.shape)
+            signal = np.pad(signal, (0, self.min_segment_size - signal.shape[0]), 'constant', constant_values=0)
             
         if len(signal[np.abs(signal)>0])==0:
             print(f'All zero signal at signal {self.dataset[index]}, idx {idx}')
