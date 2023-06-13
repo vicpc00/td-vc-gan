@@ -25,7 +25,7 @@ class ComponentDiscriminator(nn.Module):
         if conv_dim == 1:
             conv = nn.Conv1d
         elif conv_dim == 2:
-            conv = nn.conv2d
+            conv = nn.Conv2d
             
         self.discriminator = nn.ModuleList()
         
@@ -118,10 +118,11 @@ class MultiperiodDiscriminator(nn.Module):
     def __init__(self, periods, num_classes, layer_channels, kernel_size = 5, stride = 3):
         super().__init__()
         
+        self.periods = periods
         self.discriminators = nn.ModuleList()
         for p in periods:
             #self.discriminators += [Discriminator(num_classes, num_layers, num_channels_base, num_channel_mult, downsampling_factor, conditional_dim)]
-            self.discriminators += [ScaleDiscriminator(num_classes, layer_channels, kernel_size, stride)]
+            self.discriminators += [PeriodDiscriminator(num_classes, layer_channels, kernel_size, stride)]
 
         
     def forward(self,x, label_tgt):
@@ -131,8 +132,8 @@ class MultiperiodDiscriminator(nn.Module):
         
         for period, disc in zip(self.periods, self.discriminators):
             x_ = F.pad(x,(0, period - (t % period) ),'reflect')
-            t = x_.shape[2]
-            x_ = x_.view(b,c,t//period,period)
+            t_ = x_.shape[2]
+            x_ = x_.view(b,c,t_//period,period)
             
             ret.append(disc(x_, label_tgt))
             
@@ -164,8 +165,8 @@ class Discriminator(nn.Module):
     def forward(self,x, label_tgt):
         
         out_adv_msd, features_msd = self.msd(x, label_tgt)
-        out_adv_mpd, features_mpd = self.msd(x, label_tgt)
-        
+        out_adv_mpd, features_mpd = self.mpd(x, label_tgt)
+                
         return out_adv_msd+out_adv_mpd, features_msd+features_mpd
     
 #============================
