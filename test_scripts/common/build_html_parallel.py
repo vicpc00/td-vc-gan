@@ -250,6 +250,9 @@ def build_result_sumary(result_dict, spks, name_fn):
     sumary = '<h2>Objective measures sumary</h2>\n'
     if 'test_class' in result_dict:
         sumary += '<b>Speaker recognition correct rate</b>: {:.3f}&pm;{:.03f}<br/>\n'.format(*dict_correct_rate(result_dict['test_class']))
+    if 'asr_results_wer' in result_dict:
+        sumary += '<b>Automatic speech recognition word error rate</b>: {:.3f}<br/>\n'.format(result_dict['asr_results_wer'])
+        sumary += '<b>Automatic speech recognition character error rate</b>: {:.3f}<br/>\n'.format(result_dict['asr_results_cer'])
     sumary += '<b>Real valued measure statistics (excluding self transformation):</b><br/>'
     table = '''
       <tr>
@@ -372,6 +375,11 @@ def build_result_sumary(result_dict, spks, name_fn):
     if 'mos_result_conv' in result_dict:
         sumary += '<h3>Predicted MOS</h3>\n'
         sumary += build_sumary_table(dict_stats_per_pair(result_dict['mos_result_conv']), spks, name_fn)
+    if 'asr_results_wer_pair' in result_dict:
+        sumary += '<h3>Automatic speech recognition word error rate</h3>\n'
+        sumary += build_sumary_table(result_dict['asr_results_wer_pair'], spks, name_fn)
+        sumary += '<h3>Automatic speech recognition character error rate</h3>\n'
+        sumary += build_sumary_table(result_dict['asr_results_cer_pair'], spks, name_fn)
     
     
     return sumary
@@ -510,7 +518,7 @@ def gen_hist_f0_ratio(result_dict, spks, test_dir):
     plt.savefig(os.path.join(test_dir,'histograms_f0_ratio.png'))
 
 def load_dicts(test_dir):
-    result_files = ['spkrec_results', 'mosnet_results', 'mcd_results']
+    result_files = ['spkrec_results', 'mosnet_results', 'mcd_results', 'asr_results']
     result_dict = {}
     
     for rf in result_files:
