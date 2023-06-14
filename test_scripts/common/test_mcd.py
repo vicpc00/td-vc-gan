@@ -17,7 +17,7 @@ from tqdm import tqdm
 from . import parse_fn as default_parse_fn
 
 import warnings
-warnings.filterwarnings("error")
+
 
 ref_mceps = {}
 
@@ -126,6 +126,8 @@ def f0_ratio(test_file, ref_file, sr=16000):
 
 
 def test_mcd(out_filename, test_dir, parse_fn = None):
+    warnings.filterwarnings("error", category=DeprecationWarning)
+    
     if not parse_fn:
         parse_fn = default_parse_fn
     
@@ -170,6 +172,7 @@ def test_mcd(out_filename, test_dir, parse_fn = None):
         pickle.dump(results,f)
 
     #print(dists)
+    warnings.resetwarnings()
     
 
 def parse_args():

@@ -6,6 +6,7 @@ import argparse
 from common.build_html_parallel import build_html
 from common.test_mcd import test_mcd
 from common.test_speaker_rec import test_speaker_rec
+from common.test_asr import test_asr
 
 def parse_fn(filename):
     #print(filename)
@@ -28,8 +29,10 @@ def parse_args():
 
 if __name__ == '__main__':
     args = parse_args()
+    transc_folder = '/home/victor.costa/data/alcaim-transcriptions/'
     
     test_mcd(os.path.join(args.test_dir,'mcd_results'),os.path.join(args.test_dir,'signals'), parse_fn)
     test_speaker_rec(os.path.join(args.test_dir,'spkrec_results'),os.path.join(args.test_dir,'signals'), parse_fn)
+    test_asr(os.path.join(args.test_dir,'asr_results'),os.path.join(args.test_dir,'signals'), transc_folder, parse_fn, name_fn)
     build_html(os.path.join(args.test_dir,'index.html'), args.test_dir, parse_fn, name_fn)
 
