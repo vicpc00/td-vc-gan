@@ -107,7 +107,8 @@ class WaveDataset(Dataset):
 
     def get_filename(self, index):
         file_path,label = self.dataset[index]
-        return os.path.basename(file_path)
+        #return os.path.basename(file_path)
+        return file_path
     def get_label(self, index):
         _,label = self.dataset[index]
         return label, self.spk_dict[label]
@@ -123,14 +124,19 @@ class SpeakerDataset(WaveDataset):
         self.dataset = list(filter(lambda entry: entry[1] == speaker_id, self.full_dataset))
         
 def collate_fn(data):
-
-    signals, labels = zip(*data)
+    if len(data[0]) == 3:
+        signals, labels, idxs = zip(*data)
+    else: #len(data[0]) == 2
+        signals, labels = zip(*data)
+    
     max_len = max([sig.shape[1] for sig in signals])
     max_len = -1024*(-max_len//1024)
     signals_pad = [F.pad(sig, (0,max_len - sig.shape[1]), 'constant', value=0) for sig in signals]
+    
 
+    if len(data[0]) == 3:
+        return torch.stack(signals_pad), torch.LongTensor(labels), torch.LongTensor(idxs)
     return torch.stack(signals_pad), torch.LongTensor(labels)
-
     
 
         
