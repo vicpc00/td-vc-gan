@@ -80,7 +80,8 @@ def filtered_pitch(signal, decoder="argmax"):
     
     if squeezed:
         pitches = pitches.unsqueeze(1)
-    pitches = pitches[:,:,:-1].clone()
+    #pitches = pitches[:,:,:-1].clone()
+    pitches = pitches.clone()
     return pitches, activations
         
         

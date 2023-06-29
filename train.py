@@ -250,7 +250,6 @@ def main():
             c_f0_conv = util.f0_to_excitation(f0_conv_tgt, 64, sampling_rate=hp.model.sample_rate)
             c_f0_src = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
             
-            
             #Discriminator training
             if iter_count % hp.train.D_step_interval == 0:
                 
@@ -435,7 +434,8 @@ def main():
                         
                         #g_loss_f0 = F.mse_loss(f0_conv[f0_conv>0],f0_conv_alt[f0_conv>0])
                         #g_loss_f0 = F.mse_loss(f0_conv,f0_conv_tgt)
-                        g_loss_f0 = F.mse_loss(f0_conv_activ,f0_conv_tgt_activ.detach())
+                        mask = (f0_src>0).expand(f0_conv_tgt_activ.shape)
+                        g_loss_f0 = F.mse_loss(f0_conv_activ[mask],f0_conv_tgt_activ[mask].detach())
                         
                 else:
                     g_loss_f0 = torch.zeros(1, device=device)

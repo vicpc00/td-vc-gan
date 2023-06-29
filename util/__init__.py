@@ -20,6 +20,7 @@ def get_weight_norm(norm):
         return nn.utils.weight_norm
     
 def f0_to_excitation(f0, step_size, sampling_rate=16000, linear=True):
+    f0 = f0[:,:,:-1] #remove last to make interpolated shape match orig signal
         
     sin_gain = 0.1
     noise_std = 0.003
