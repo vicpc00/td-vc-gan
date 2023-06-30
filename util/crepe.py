@@ -72,9 +72,9 @@ def filtered_pitch(signal, decoder="argmax"):
     #Filtering pitch
     with torch.no_grad():
         #periodicities = crepe.filter.median(periodicities, 3)
-        if signal.shape[0] == 1:
-            periodicities = crepe.threshold.Silence(silence_tresh)(periodicities,
-                                                                   signal, sr, hop_length)
+        #if signal.shape[0] == 1:
+        #    periodicities = crepe.threshold.Silence(silence_tresh)(periodicities,
+        #                                                           signal, sr, hop_length)
         
         pitches = crepe.threshold.At(periodicity_tresh)(pitches, periodicities)
     
