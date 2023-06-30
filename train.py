@@ -487,7 +487,7 @@ def main():
                     print(', {}: {:.4f}'.format(label, value),end='')
                 print()
             iter_count += 1
-
+            #break
             
         if epoch % hp.log.val_interval == 0:
             print('Validation loop')
@@ -505,16 +505,17 @@ def main():
                         #Random target label
                         label_tgt = torch.randint(train_dataset.num_spk,label_src.shape)
                     c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
-                    
-                    f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-                    c_f0 = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
-        
+
                     #Send everything to device
                     signal_real = signal_real.to(device)
                     label_src = label_src.to(device)
                     label_tgt = label_tgt.to(device)
                     c_src = c_src.to(device)
                     c_tgt = c_tgt.to(device)
+                    
+                    #f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                    f0_src, f0_src_activ = util.crepe.filtered_pitch(signal_real)
+                    c_f0 = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
                     
                     #Compute fake signal
                     signal_fake = G(signal_real, c_tgt, c_var = c_f0)
@@ -588,14 +589,15 @@ def main():
                 label_tgt = label_src if hp.train.no_conv else torch.randint(train_dataset.num_spk,label_src.shape)
                 c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
                 
-                f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-                c_f0 = util.f0_to_excitation(f0_src*f0_ratios[i], 64, sampling_rate=hp.model.sample_rate)
-                
                 signal_real = signal_real.to(device)
                 label_src = label_src.item()
                 label_tgt = label_tgt.item()
                 c_src = c_src.to(device)
                 c_tgt = c_tgt.to(device)
+                
+                #f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                f0_src, f0_src_activ = util.crepe.filtered_pitch(signal_real)
+                c_f0 = util.f0_to_excitation(f0_src*f0_ratios[i], 64, sampling_rate=hp.model.sample_rate)
                 
                 signal_fake = G(signal_real,c_tgt,c_var = c_f0)
                 signal_rec = G(signal_fake,c_src,c_var = c_f0)
