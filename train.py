@@ -182,8 +182,8 @@ def main():
     G.to(device)
     D.to(device)       
 
-    optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
-    optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
+    optimizer_G = torch.optim.AdamW(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
+    optimizer_D = torch.optim.AdamW(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
 
     if 'C' in locals():
         optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
