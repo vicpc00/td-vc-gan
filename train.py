@@ -434,8 +434,9 @@ def main():
                         
                         #g_loss_f0 = F.mse_loss(f0_conv[f0_conv>0],f0_conv_alt[f0_conv>0])
                         #g_loss_f0 = F.mse_loss(f0_conv,f0_conv_tgt)
-                        mask = (f0_src>0).expand(f0_conv_tgt_activ.shape)
-                        g_loss_f0 = F.mse_loss(f0_conv_activ[mask],f0_conv_tgt_activ[mask].detach())
+                        #mask = (f0_src>0).expand(f0_conv_tgt_activ.shape)
+                        #g_loss_f0 = F.mse_loss(f0_conv_activ[mask],f0_conv_tgt_activ[mask].detach())
+                        g_loss_f0 = F.mse_loss(f0_conv_activ,f0_conv_tgt_activ.detach())
                         
                 else:
                     g_loss_f0 = torch.zeros(1, device=device)
