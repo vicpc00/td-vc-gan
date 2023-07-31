@@ -579,8 +579,11 @@ def main():
         #Gen exemples
         if epoch % hp.log.gen_interval == 0:
             print('Saving signals')
-            f0_ratios = torch.rand(hp.log.gen_num)*1.5 + 0.5
-            f0_ratios[0] = 1
+            if not hp.train.no_conv:
+                f0_ratios = torch.rand(hp.log.gen_num)*1.5 + 0.5
+                f0_ratios[0] = 1
+            else:
+                f0_ratios = torch.ones(hp.log.gen_num)
             for i, data in enumerate(test_data_loader):
                 if i >= hp.log.gen_num:
                     break
