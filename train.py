@@ -341,15 +341,15 @@ def main():
                     if hp.train.lambda_feat > 0:
                         _, features_rec_list = D(signal_rec, label_src)
                         g_loss_rec_feat = util.losses.multiscale_feat_loss(features_rec_list, features_real_list ,norm_p = 1)
-                        g_loss_rec += g_loss_rec_feat
+                        g_loss_rec += hp.train.lambda_feat*g_loss_rec_feat
                         loss['G_loss_rec_feat'] = g_loss_rec_feat
                     if hp.train.lambda_spec > 0:
                         g_loss_rec_spec = util.losses.multiscale_spec_loss(signal_rec, signal_real_jitter, [2048, 1024, 512])
-                        g_loss_rec += g_loss_rec_spec
+                        g_loss_rec += hp.train.lambda_spec*g_loss_rec_spec
                         loss['G_loss_rec_spec'] = g_loss_rec_spec
                     if hp.train.lambda_wave > 0:
                         g_loss_rec_wave = torch.mean(torch.abs(signal_real - signal_rec))#L1 Loss
-                        g_loss_rec += g_loss_rec_wave
+                        g_loss_rec += hp.train.lambda_wave*g_loss_rec_wave
                         loss['G_loss_rec_wave'] = g_loss_rec_wave
 
                 #Identity loss
@@ -364,15 +364,15 @@ def main():
                     if hp.train.lambda_feat > 0:
                         _, features_idt_list = D(signal_idt, label_src)
                         g_loss_idt_feat = util.losses.multiscale_feat_loss(features_idt_list, features_real_list ,norm_p = 1)
-                        g_loss_idt += g_loss_idt_feat
+                        g_loss_idt += hp.train.lambda_feat*g_loss_idt_feat
                         loss['G_loss_idt_feat'] = g_loss_idt_feat
                     if hp.train.lambda_spec > 0:
                         g_loss_idt_spec = util.losses.multiscale_spec_loss(signal_idt, signal_real_jitter, [2048, 1024, 512])
-                        g_loss_idt += g_loss_idt_spec
+                        g_loss_idt += hp.train.lambda_spec*g_loss_idt_spec
                         loss['G_loss_idt_spec'] = g_loss_idt_spec
                     if hp.train.lambda_wave > 0:
                         g_loss_idt_wave = torch.mean(torch.abs(signal_real - signal_idt))#L1 Loss
-                        g_loss_rec += g_loss_idt_wave
+                        g_loss_rec += hp.train.lambda_wave*g_loss_idt_wave
                         loss['G_loss_idt_wave'] = g_loss_idt_wave
                 
 
