@@ -20,7 +20,8 @@ import util.crepe
 import torch.utils.tensorboard as tensorboard
 
 from model.generator import Generator
-from model.discriminator import Discriminator
+#from model.discriminator import Discriminator
+from model.hifigan.models import Discriminator
 from model.latent_classifier import LatentClassifier
 from model.f0_estimator import F0Estimator
 import data.dataset as dataset
@@ -139,12 +140,14 @@ def main():
                   weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
                   bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder,
                   output_content_emb = latent_classier)
+    """
     D = Discriminator(hp.model.discriminator.num_scales,
                       hp.model.discriminator.periods,
                       train_dataset.num_spk,
                       hp.model.discriminator.scale_disc_config,
                       hp.model.discriminator.period_disc_config)
-
+    """
+    D = Discriminator(train_dataset.num_spk)
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
         C = LatentClassifier(train_dataset.num_spk,hp.model.generator.content_dim)
@@ -360,7 +363,6 @@ def main():
 
                     else:
                         signal_idt = signal_fake
-                        
                     if hp.train.lambda_feat > 0:
                         _, features_idt_list = D(signal_idt, label_src)
                         g_loss_idt_feat = util.losses.multiscale_feat_loss(features_idt_list, features_real_list ,norm_p = 1)
