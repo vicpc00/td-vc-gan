@@ -148,7 +148,7 @@ def main():
                                 hp.model.discriminator.conditional_spks)
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
-        C = LatentClassifier(train_dataset.num_spk,hp.model.generator.decoder_channels[0])
+        C = LatentClassifier(train_dataset.num_spk,hp.model.generator.content_dim)
  
     if load_path != None:
         if args.epoch != None:
@@ -590,7 +590,7 @@ def main():
                 signal_real, label_src = data
                 c_src = label2onehot(label_src,train_dataset.num_spk)
                 
-                label_tgt = label_src if hp.train.no_conv else torch.randint(train_dataset.num_spk,label_src.shape)
+                label_tgt = label_src if hp.train.no_conv or i == 0 else torch.randint(train_dataset.num_spk,label_src.shape)
                 c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
                 
                 signal_real = signal_real.to(device)
