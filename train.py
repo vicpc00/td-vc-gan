@@ -193,7 +193,8 @@ def main():
         for param in G.encoder.parameters():
             param.requires_grad = False
 
-    need_target_signal = hp.train.lambda_f0 != 0
+    #need_target_signal = hp.train.lambda_f0 != 0
+    need_target_signal = True
     
     f0_means = torch.zeros(train_dataset.num_spk).to(device)
     f0_Ns = torch.zeros(train_dataset.num_spk).to(device)
@@ -579,40 +580,42 @@ def main():
         #Gen exemples
         if epoch % hp.log.gen_interval == 0:
             print('Saving signals')
-            if not hp.train.no_conv:
-                f0_ratios = torch.rand(hp.log.gen_num)*1.5 + 0.5
-                f0_ratios[0] = 1
-            else:
-                f0_ratios = torch.ones(hp.log.gen_num)
-            for i, data in enumerate(test_data_loader):
-                if i >= hp.log.gen_num:
-                    break
-                signal_real, label_src = data
-                c_src = label2onehot(label_src,train_dataset.num_spk)
-                
-                label_tgt = label_src if hp.train.no_conv or i == 0 else torch.randint(train_dataset.num_spk,label_src.shape)
-                c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
-                
-                signal_real = signal_real.to(device)
-                label_src = label_src.item()
-                label_tgt = label_tgt.item()
-                c_src = c_src.to(device)
-                c_tgt = c_tgt.to(device)
-                
-                #f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-                f0_src, f0_src_activ = util.crepe.filtered_pitch(signal_real)
-                c_f0 = util.f0_to_excitation(f0_src*f0_ratios[i], 64, sampling_rate=hp.model.sample_rate)
-                
-                signal_fake = G(signal_real,c_tgt,c_var = c_f0)
-                signal_rec = G(signal_fake,c_src,c_var = c_f0)
-                
-                signal_real = signal_real.squeeze().cpu().detach().numpy()
-                signal_fake = signal_fake.squeeze().cpu().detach().numpy()
-                signal_rec  = signal_rec.squeeze().cpu().detach().numpy()
-                
-                sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_conv_r={:.2f}.wav'.format(epoch,i,label_src,label_tgt, f0_ratios[i]),signal_fake,hp.model.sample_rate)
-                sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_orig.wav'.format(epoch,i,label_src,label_tgt),signal_real,hp.model.sample_rate)
-                sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_rec.wav'.format(epoch,i,label_src,label_tgt),signal_rec,hp.model.sample_rate)
+            with torch.no_grad():
+                if not hp.train.no_conv:
+                    f0_ratios = torch.rand(hp.log.gen_num)*1.5 + 0.5
+                    f0_ratios[0] = 1
+                else:
+                    f0_ratios = torch.ones(hp.log.gen_num)
+                for i, data in enumerate(test_data_loader):
+                    if i >= hp.log.gen_num:
+                        break
+                    signal_real, label_src = data
+                    c_src = label2onehot(label_src,train_dataset.num_spk)
+                    
+                    label_tgt = label_src if hp.train.no_conv or i == 0 else torch.randint(train_dataset.num_spk,label_src.shape)
+                    c_tgt = label2onehot(label_tgt,train_dataset.num_spk)
+                    
+                    signal_real = signal_real.to(device)
+                    label_src = label_src.item()
+                    label_tgt = label_tgt.item()
+                    c_src = c_src.to(device)
+                    c_tgt = c_tgt.to(device)
+                    
+                    #f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
+                    f0_src, f0_src_activ = util.crepe.filtered_pitch(signal_real)
+                    c_f0 = util.f0_to_excitation(f0_src*f0_ratios[i], 64, sampling_rate=hp.model.sample_rate)
+                    
+                    signal_fake = G(signal_real,c_tgt,c_var = c_f0)
+                    signal_rec = G(signal_fake,c_src,c_var = c_f0)
+                    
+                    signal_real = signal_real.squeeze().cpu().detach().numpy()
+                    signal_fake = signal_fake.squeeze().cpu().detach().numpy()
+                    signal_rec  = signal_rec.squeeze().cpu().detach().numpy()
+                    
+                    sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_conv_r={:.2f}.wav'.format(epoch,i,label_src,label_tgt, f0_ratios[i]),signal_fake,hp.model.sample_rate)
+                    sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_orig.wav'.format(epoch,i,label_src,label_tgt),signal_real,hp.model.sample_rate)
+                    sf.write(save_path / 'generated' / 'epoch{:03d}_sig{:02d}_{:1d}-{:1d}_rec.wav'.format(epoch,i,label_src,label_tgt),signal_rec,hp.model.sample_rate)
+            
 
         #Update random seed
         np.random.seed(initial_seed+epoch)
