@@ -79,15 +79,15 @@ class FiLMResnetBlock(nn.Module):
                 weight_norm(nn.Conv1d(n_channel,n_channel,
                            kernel_size=1))
                 )
-        if not n_cond_var:
-            self.cond = weight_norm(nn.Linear(n_cond_const,2*n_channel))
-        else:
-            self.cond_var = nn.Sequential(
-                    weight_norm(nn.Conv1d(n_cond_const+n_cond_var, n_cond_const+n_cond_var, 
-                                          kernel_size=3, padding='same')),
-                    nn.LeakyReLU(leaky_relu_slope),
-                    weight_norm(nn.Conv1d(n_cond_const+n_cond_var, n_channel*2, 
-                                          kernel_size=3, padding='same')))
+        #if not n_cond_var:
+        #    self.cond = weight_norm(nn.Linear(n_cond_const,2*n_channel))
+        #else:
+        self.cond_var = nn.Sequential(
+                weight_norm(nn.Conv1d(n_cond_const+n_cond_var, n_cond_const+n_cond_var, 
+                                      kernel_size=3, padding='same')),
+                nn.LeakyReLU(leaky_relu_slope),
+                weight_norm(nn.Conv1d(n_cond_const+n_cond_var, n_channel*2, 
+                                      kernel_size=3, padding='same')))
         self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
     
     def forward(self,x,c):
@@ -255,7 +255,8 @@ class Decoder(nn.Module):
         leaky_relu_slope = 0.2
         self.upsample_ratios = upsample_ratios
         self.upsample_idxs = []
-        excite_channels = [8, 8, 8, 8, 8]
+        #excite_channels = [8, 8, 8, 8, 8]
+        excite_channels = [0, 0, 0, 0, 0]
         
         if embedding_dim:
             model += [nn.LeakyReLU(leaky_relu_slope),
@@ -299,17 +300,15 @@ class Decoder(nn.Module):
         
         
         
-        
-        self.excite_downsample = nn.ModuleList()
-        
-        
-        for r, ch_in, ch_out in zip(self.upsample_ratios, excite_channels[:-1], excite_channels[1:]):
-            self.excite_downsample += [ExciteDownsampleBlock(ch_in, ch_out, r,
-                                                             weight_norm = weight_norm)]
+        if False:
+            self.excite_downsample = nn.ModuleList()
             
-        self.excite_downsample += [weight_norm(nn.Conv1d(1,excite_channels[0],
-                                                        kernel_size=7, padding=3,
-                                                        padding_mode='reflect'))]
+            for r, ch_in, ch_out in zip(self.upsample_ratios, excite_channels[:-1], excite_channels[1:]):
+                self.excite_downsample += [ExciteDownsampleBlock(ch_in, ch_out, r,
+                                                                 weight_norm = weight_norm)]    
+            self.excite_downsample += [weight_norm(nn.Conv1d(1,excite_channels[0],
+                                                            kernel_size=7, padding=3,
+                                                            padding_mode='reflect'))]
         
     def get_scaled_conditioning(self, c):
         
@@ -330,17 +329,22 @@ class Decoder(nn.Module):
             for mod in self.decoder:
                 x = mod(x)
         else:
+            curr_scale = 0
+            c_const = c.unsqueeze(2).repeat(1,1,x.size(2))
             if c_var is not None:
-                curr_scale = 0
                 c_var_scales = self.get_scaled_conditioning(c_var)
-                c_const = c.unsqueeze(2).repeat(1,1,x.size(2))
                 c = torch.cat([c_const, c_var_scales[-1]],dim=1)
+            else:
+                c = c_const
             
             for i, mod in enumerate(self.decoder):
-                if c_var is not None and i == self.upsample_idxs[curr_scale]:
+                if i == self.upsample_idxs[curr_scale]:
                     c_const = c_const.repeat(1,1,self.upsample_ratios[curr_scale])
                     curr_scale += 1
-                    c = torch.cat([c_const, c_var_scales[-1-curr_scale]],dim=1)
+                    if c_var is not None:
+                        c = torch.cat([c_const, c_var_scales[-1-curr_scale]],dim=1)
+                    else:
+                        c = c_const
                 if type(mod) in [CINResnetBlock, ConditionalInstanceNorm, FiLMResnetBlock]:
                     x = mod(x,c)
                 else:

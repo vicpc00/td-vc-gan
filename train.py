@@ -230,7 +230,7 @@ def main():
             c_tgt = c_tgt.to(device)
             if need_target_signal:
                 signal_real_tgt = signal_real_tgt.to(device)
-            
+            """
             #f0_src = torchyin.estimate(signal_real, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
             f0_src, f0_src_activ = util.crepe.filtered_pitch(signal_real)
 
@@ -250,12 +250,12 @@ def main():
             
             c_f0_conv = util.f0_to_excitation(f0_conv_tgt, 64, sampling_rate=hp.model.sample_rate)
             c_f0_src = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
-            
+            """
             #Discriminator training
             if iter_count % hp.train.D_step_interval == 0:
                 
                 #Compute fake signal
-                signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
+                signal_fake = G(signal_real, c_tgt, c_var = None)
                 sig_real_cont_emb = G.content_embedding.clone()
                 
                 #Real signal losses
@@ -314,7 +314,7 @@ def main():
             #Generator training
             if iter_count % hp.train.G_step_interval == 0: #N steps of D for each steap of G
                 #Fake signal losses
-                signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
+                signal_fake = G(signal_real, c_tgt, c_var = None)
                 sig_real_cont_emb = G.content_embedding.clone()
                 out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt)
 
@@ -336,7 +336,7 @@ def main():
                 g_loss_rec = torch.zeros(1, device=device)
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec = G(signal_fake, c_src, c_var = c_f0_src)
+                    signal_rec = G(signal_fake, c_src, c_var = None)
                     
                     sig_fake_cont_emb = G.content_embedding.clone()
                     if hp.train.lambda_feat > 0:
@@ -357,7 +357,7 @@ def main():
                 g_loss_idt = torch.zeros(1, device=device)
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
-                        signal_idt = G(signal_real, c_src, c_var = c_f0_src)
+                        signal_idt = G(signal_real, c_src, c_var = None)
 
                     else:
                         signal_idt = signal_fake
@@ -520,7 +520,7 @@ def main():
                     c_f0 = util.f0_to_excitation(f0_src, 64, sampling_rate=hp.model.sample_rate)
                     
                     #Compute fake signal
-                    signal_fake = G(signal_real, c_tgt, c_var = c_f0)
+                    signal_fake = G(signal_real, c_tgt, c_var = None)
                     #Real signal losses
                     out_adv_real_list, features_real_list = D(signal_real, label_src)
                     #Fake signal losses
@@ -605,8 +605,8 @@ def main():
                     f0_src, f0_src_activ = util.crepe.filtered_pitch(signal_real)
                     c_f0 = util.f0_to_excitation(f0_src*f0_ratios[i], 64, sampling_rate=hp.model.sample_rate)
                     
-                    signal_fake = G(signal_real,c_tgt,c_var = c_f0)
-                    signal_rec = G(signal_fake,c_src,c_var = c_f0)
+                    signal_fake = G(signal_real,c_tgt,c_var = None)
+                    signal_rec = G(signal_fake,c_src,c_var = None)
                     
                     signal_real = signal_real.squeeze().cpu().detach().numpy()
                     signal_fake = signal_fake.squeeze().cpu().detach().numpy()
