@@ -40,21 +40,18 @@ class FilteredLReLU(nn.Module):
         up_f = self.up_filter.view(1,1,-1).expand(n_channels, 1, -1)
         dn_f = self.dn_filter.view(1,1,-1).expand(n_channels, 1, -1)
         
-        
         if self.up_factor > 1:
             x = self.up_factor*F.conv_transpose1d(x, up_f, 
                                                   stride=self.up_factor, 
                                                   padding=self.up_factor*self.filter_len//2, 
                                                   output_padding=self.up_factor-1, 
                                                   groups=n_channels)
-            #print(x.shape)
         x = F.leaky_relu(x, self.negative_slope, inplace=True)
         if self.dn_factor > 1:
-            x = F.conv1d(x, up_f, 
+            x = F.conv1d(x, dn_f, 
                          stride=self.dn_factor, 
                          padding=self.dn_factor*self.filter_len//2, 
                          groups=n_channels)
-            #print(x.shape)
             
         return x
         
