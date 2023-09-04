@@ -58,7 +58,8 @@ class ResnetBlock(nn.Module):
                 weight_norm(nn.Conv1d(n_channel,n_channel,
                                       kernel_size=1))
                 )
-        self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
+        #self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
+        self.shortcut = nn.Identity()
     
     def forward(self,x):
         return self.block(x) + self.shortcut(x)
@@ -88,7 +89,8 @@ class FiLMResnetBlock(nn.Module):
                     nn.LeakyReLU(leaky_relu_slope),
                     weight_norm(nn.Conv1d(n_cond_const+n_cond_var, n_channel*2, 
                                           kernel_size=3, padding='same')))
-        self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
+        #self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
+        self.shortcut = nn.Identity()
     
     def forward(self,x,c):
         h = self.conv(x)
@@ -165,6 +167,14 @@ class ExciteDownsampleBlock(nn.Module):
             x = mod(x)
         
         return x + x_sh
+ 
+class MRFBlock(nn.Module): #Multi-Receptive Field Fusion from HiFiGAN
+    def __init__(self, n_channel, n_cond_const, n_cond_var = 0, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2, weight_norm = lambda x: x):
+        super().__init__()
+    
+    def forward(self,x,c = None):
+        
+        return x
         
         
 class Encoder(nn.Module):
