@@ -155,13 +155,11 @@ class Encoder(nn.Module):
     
         for i,r in enumerate(downsample_ratios):
             model += [norm_layer(channel_sizes[i]) if not self.cin else norm_layer(channel_sizes[i], conditional_dim),
-                      FilteredLReLU(leaky_relu_slope,
-                                    up_factor=2, dn_factor=2*r, 
-                                    up_fc=0.5, dn_fc=1/(2*r)),
+                      FilteredLReLU(leaky_relu_slope),
                       weight_norm(nn.Conv1d(channel_sizes[i], channel_sizes[i+1],
-                                         kernel_size = 7,
-                                         stride = 1,
-                                         padding=3,))]
+                                         kernel_size = 2*r,
+                                         stride = r,
+                                         padding= r//2 + r%2,))]
             for j in range(n_res_blocks): #wavenet resblocks
                 if not self.cin:
                     model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
@@ -237,13 +235,12 @@ class Decoder(nn.Module):
         
         for i,r in enumerate(upsample_ratios):
             model += [norm_layer(channel_sizes[i]) if not self.cin else norm_layer(channel_sizes[i], conditional_dim),
-                      FilteredLReLU(leaky_relu_slope,
-                                    up_factor=2*r, dn_factor=2, 
-                                    up_fc=1/(2*r), dn_fc=1/2),
-                      weight_norm(nn.Conv1d(channel_sizes[i], channel_sizes[i+1],
-                                                     kernel_size = 7,
-                                                     stride = 1,
-                                                     padding=3))]
+                      FilteredLReLU(leaky_relu_slope),
+                      weight_norm(nn.ConvTranspose1d(channel_sizes[i], channel_sizes[i+1],
+                                                     kernel_size = 2*r,
+                                                     stride = r,
+                                                     padding=r // 2 + r % 2, #might only work for even r
+                                                     output_padding=r % 2))]
             self.upsample_idxs.append(len(model))
             for j in range(n_res_blocks): #wavenet resblocks
                 if not self.cin:
