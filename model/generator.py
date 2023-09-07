@@ -67,22 +67,21 @@ class ResnetBlock(nn.Module):
 class FiLMResnetBlock(nn.Module):
     def __init__(self, n_channel, n_cond_const, n_cond_var = 0, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2, weight_norm = lambda x: x):
         super().__init__()
-        self.use_scale = False
+        self.use_scale = True
         self.conv = nn.Sequential(
                 nn.LeakyReLU(leaky_relu_slope),
                 weight_norm(nn.Conv1d(n_channel,n_channel,
                           kernel_size=kernel_size, 
                           dilation=dilation,
-                          padding=dilation,padding_mode='reflect'))
+                          padding=(kernel_size*dilation - dilation)//2,
+                          padding_mode='reflect'))
                 )
         self.posconv = nn.Sequential(
                 nn.LeakyReLU(leaky_relu_slope),
                 weight_norm(nn.Conv1d(n_channel,n_channel,
                            kernel_size=1))
                 )
-        if not n_cond_var:
-            self.cond = weight_norm(nn.Linear(n_cond_const,2*n_channel))
-        else:
+        if n_cond_const or n_cond_var:
             self.cond_var = nn.Sequential(
                     weight_norm(nn.Conv1d(n_cond_const+n_cond_var, n_cond_const+n_cond_var, 
                                           kernel_size=3, padding='same')),
@@ -92,17 +91,18 @@ class FiLMResnetBlock(nn.Module):
         #self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
         self.shortcut = nn.Identity()
     
-    def forward(self,x,c):
+    def forward(self,x,c = None):
         h = self.conv(x)
-        if c.ndim == 2:
-            c = self.cond(c)
-            c = c.unsqueeze(-1).expand(-1,-1,h.shape[-1])
-        else:
-            c = self.cond_var(c)
-        gamma, beta = c.chunk(2, dim=1)
-        if self.use_scale:
-            h = h*(1+gamma)
-        h = h + beta
+        if c:
+            if c.ndim == 2:
+                c = self.cond(c)
+                c = c.unsqueeze(-1).expand(-1,-1,h.shape[-1])
+            else:
+                c = self.cond_var(c)
+            gamma, beta = c.chunk(2, dim=1)
+            if self.use_scale:
+                h = h*(1+gamma)
+            h = h + beta
         
         x = self.posconv(h) + self.shortcut(x)
         
@@ -117,7 +117,7 @@ class CINResnetBlock(nn.Module):
                 nn.Conv1d(n_channel,n_channel,
                           kernel_size=kernel_size, 
                           dilation=dilation,
-                          padding=dilation,padding_mode='reflect'),
+                          padding=(kernel_size*dilation - dilation)//2, padding_mode='reflect'),
                 ConditionalInstanceNorm(n_channel, n_cond),
                 nn.LeakyReLU(leaky_relu_slope),
                 nn.Conv1d(n_channel,n_channel,
@@ -169,12 +169,25 @@ class ExciteDownsampleBlock(nn.Module):
         return x + x_sh
  
 class MRFBlock(nn.Module): #Multi-Receptive Field Fusion from HiFiGAN
-    def __init__(self, n_channel, n_cond_const, n_cond_var = 0, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2, weight_norm = lambda x: x):
+    def __init__(self, n_channel, n_cond_const = 0, n_cond_var = 0, dilations=[1, 3, 5], kernel_sizes = [3, 7, 11], leaky_relu_slope = 0.2, weight_norm = lambda x: x):
         super().__init__()
-    
+        self.blocks = nn.ModuleList([nn.ModuleList() for i in range(len(kernel_sizes))])
+        self.has_cond = n_cond_const > 0 or n_cond_var > 0
+        for i, kernel_size in enumerate(kernel_sizes):
+            for dilation in dilations:
+                self.blocks[i].append(FiLMResnetBlock(n_channel, n_cond_const, n_cond_var,
+                                                 dilation, kernel_size,
+                                                 leaky_relu_slope, weight_norm))
+               
     def forward(self,x,c = None):
-        
-        return x
+        y = 0
+        for block in self.blocks:
+            xs = x
+            for mod in block:
+                xs = mod(xs, c)
+            y += xs
+        y = y/len(self.blocks)
+        return y
         
         
 class Encoder(nn.Module):
@@ -190,6 +203,8 @@ class Encoder(nn.Module):
         
         
         leaky_relu_slope = 0.2
+        resblock_dilations = [1, 3, 5]
+        resblock_kernel_sizes = [3, 7, 11]
         
         
         model += [weight_norm(nn.Conv1d(1,channel_sizes[0],
@@ -205,6 +220,10 @@ class Encoder(nn.Module):
                                          kernel_size = 2*r,
                                          stride = r,
                                          padding=r // 2 + r % 2,))]
+            model += [MRFBlock(channel_sizes[i+1], n_cond_const = 0, n_cond_var = 0,
+                              dilations=resblock_dilations, kernel_sizes=resblock_kernel_sizes,
+                              leaky_relu_slope=leaky_relu_slope, weight_norm = weight_norm)]
+            """
             for j in range(n_res_blocks): #wavenet resblocks
                 if not self.cin:
                     model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
@@ -215,6 +234,7 @@ class Encoder(nn.Module):
                     model += [FiLMResnetBlock(channel_sizes[i+1],conditional_dim, dilation=3**j,
                                               leaky_relu_slope=leaky_relu_slope,
                                               weight_norm = weight_norm)]
+            """
                     
         model += [nn.LeakyReLU(leaky_relu_slope),
                   weight_norm(nn.Conv1d(channel_sizes[-1], channel_sizes[-1],
@@ -266,6 +286,8 @@ class Decoder(nn.Module):
         self.upsample_ratios = upsample_ratios
         self.upsample_idxs = []
         excite_channels = [8, 8, 8, 8, 8]
+        resblock_dilations = [1, 3, 5]
+        resblock_kernel_sizes = [3, 7, 11]
         
         if embedding_dim:
             model += [nn.LeakyReLU(leaky_relu_slope),
@@ -286,6 +308,10 @@ class Decoder(nn.Module):
                                                      padding=r // 2 + r % 2, #might only work for even r
                                                      output_padding=r % 2))]
             self.upsample_idxs.append(len(model))
+            model += [MRFBlock(channel_sizes[i+1],conditional_dim, excite_channels[i+1],
+                              dilations=resblock_dilations, kernel_sizes=resblock_kernel_sizes,
+                              leaky_relu_slope=leaky_relu_slope, weight_norm = weight_norm)]
+            """
             for j in range(n_res_blocks): #wavenet resblocks
                 if not self.cin:
                     model += [ResnetBlock(channel_sizes[i+1],dilation=3**j,
@@ -296,6 +322,7 @@ class Decoder(nn.Module):
                     model += [FiLMResnetBlock(channel_sizes[i+1],conditional_dim, excite_channels[i+1], 
                                               dilation=3**j, leaky_relu_slope=leaky_relu_slope,
                                               weight_norm = weight_norm)]
+            """
         
         model += [norm_layer(channel_sizes[-1]) if not self.cin else norm_layer(channel_sizes[-1], conditional_dim),
                   nn.LeakyReLU(leaky_relu_slope),
