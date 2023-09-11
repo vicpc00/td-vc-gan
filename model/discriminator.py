@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from util.filtered_lrelu import FilteredLReLU
+from util.dsp import kaiser_filter
 
 class Discriminator(nn.Module):
     def __init__(self, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4, conditional_dim=32, conditional='both'):
@@ -68,12 +69,8 @@ class MultiscaleDiscriminator(nn.Module):
         #self.pooling = nn.AvgPool1d(kernel_size=4, stride=2, padding=1, count_include_pad=False)
         
         #Kaiser filter
-        L = 32
-        n = torch.arange(-L//2, L//2+1).float()
-        f = torch.sin(math.pi*0.5*n)/(math.pi*n + 1e-8)
-        f[n.shape[0]//2] = 0.5
-        f = f*torch.kaiser_window(L+1, False, 2.5)
-        f = f/torch.sum(f)
+        L = 33
+        f = kaiser_filter(L, 0.5, 2.5)
         f = f.view(1,1,-1)
         self.L = L
         
@@ -88,7 +85,7 @@ class MultiscaleDiscriminator(nn.Module):
             ret.append(disc(x, label_tgt))
             x = F.conv1d(x, self.down_filter, 
                          stride=2, 
-                         padding=self.L)
+                         padding=self.L-1)
 
             
         out, features = zip(*ret)

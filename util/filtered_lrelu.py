@@ -4,6 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from util.dsp import kaiser_filter
+
 class FilteredLReLU(nn.Module):
     def __init__(self, negative_slope=0.01, up_factor=2, dn_factor=2, up_fc=0.5, dn_fc=0.5, filter_len=8, filter_beta=2.5):
         super().__init__()
@@ -17,22 +19,11 @@ class FilteredLReLU(nn.Module):
         self.filter_beta = filter_beta       #Length of up/down sample filter beta
         
         #Upsample
-        L = filter_len*up_factor
-        n = torch.arange(-L//2, L//2+1).float()
-        f = torch.sin(math.pi*up_fc*n)/(math.pi*n + 1e-8) #sinc function
-        f[n.shape[0]//2] = dn_fc #sinc[0]
-        win = torch.kaiser_window(L+1, False, filter_beta)
-        f = f*win
-        f = f/torch.sum(f)
+        f = kaiser_filter(filter_len*up_factor+1, up_fc, filter_beta)
         self.register_buffer('up_filter', f, persistent=False)
         
-        L = filter_len*dn_factor
-        n = torch.arange(-L//2, L//2+1).float()
-        f = torch.sin(math.pi*dn_fc*n)/(math.pi*n + 1e-8) #sinc function
-        f[n.shape[0]//2] = dn_fc #sinc[0]
-        win = torch.kaiser_window(L+1, False, filter_beta)
-        f = f*win
-        f = f/torch.sum(f)
+        #Downsample
+        f = kaiser_filter(filter_len*dn_factor+1, dn_fc, filter_beta)
         self.register_buffer('dn_filter', f, persistent=False)
 
     def forward(self,x):
