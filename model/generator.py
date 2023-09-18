@@ -93,7 +93,7 @@ class FiLMResnetBlock(nn.Module):
     
     def forward(self,x,c = None):
         h = self.conv(x)
-        if c:
+        if c is not None:
             if c.ndim == 2:
                 c = self.cond(c)
                 c = c.unsqueeze(-1).expand(-1,-1,h.shape[-1])
@@ -378,7 +378,7 @@ class Decoder(nn.Module):
                     c_const = c_const.repeat(1,1,self.upsample_ratios[curr_scale])
                     curr_scale += 1
                     c = torch.cat([c_const, c_var_scales[-1-curr_scale]],dim=1)
-                if type(mod) in [CINResnetBlock, ConditionalInstanceNorm, FiLMResnetBlock]:
+                if type(mod) in [CINResnetBlock, ConditionalInstanceNorm, FiLMResnetBlock, MRFBlock]:
                     x = mod(x,c)
                 else:
                     x = mod(x)
