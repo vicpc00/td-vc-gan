@@ -156,15 +156,15 @@ def generate_signals(save_path, data_path, load_path, config_file = None, data_f
             
             
             #f0_tgt = torchyin.estimate(signal_tgt, sample_rate=hp.model.sample_rate, frame_stride=64/16000).to(device)
-            f0_tgt, _ = util.crepe.filtered_pitch(signal_tgt, "viterbi")
+            # f0_tgt, _ = util.crepe.filtered_pitch(signal_tgt, "viterbi")
 
-            mu_tgt = torch.sum((f0_tgt>0)*torch.log(f0_tgt+1e-6), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6)
-            f0_conv_tgt = torch.zeros(f0_src.shape).to(device)
-            f0_conv_tgt[f0_src>0] = torch.exp(torch.log(f0_src+1e-6) + mu_tgt - mu_src)[f0_src>0]
+            # mu_tgt = torch.sum((f0_tgt>0)*torch.log(f0_tgt+1e-6), -1, keepdim=True)/(torch.sum(f0_tgt>0, -1, keepdim=True)+1e-6)
+            # f0_conv_tgt = torch.zeros(f0_src.shape).to(device)
+            # f0_conv_tgt[f0_src>0] = torch.exp(torch.log(f0_src+1e-6) + mu_tgt - mu_src)[f0_src>0]
             
-            c_f0_conv = util.f0_to_excitation(f0_conv_tgt, 64, sampling_rate=hp.model.sample_rate)
+            # c_f0_conv = util.f0_to_excitation(f0_conv_tgt, 64, sampling_rate=hp.model.sample_rate)
             
-            signal_fake = G(signal_real,c_tgt, c_var=c_f0_conv)
+            signal_fake = G(signal_real,c_tgt, c_var=None)
             
             signal_fake = signal_fake.squeeze().cpu().detach().numpy()
             
