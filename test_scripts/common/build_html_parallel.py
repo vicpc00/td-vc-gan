@@ -192,12 +192,12 @@ def build_sumary_table(result_dict, spks, name_fn):
         table += '</tr>\n'
     return html_table_template.format(table)
 
-def dict_stats(result_dict, count_self = True):
+def dict_stats(result_dict, count_self = True, transf = lambda x: x):
     result_list = []
     for src_spk in result_dict.keys():
         for tgt_spk in result_dict[src_spk].keys():
             if src_spk == tgt_spk and not count_self: continue
-            result_list += filter(np.isfinite, result_dict[src_spk][tgt_spk])
+            result_list += filter(np.isfinite, transf(result_dict[src_spk][tgt_spk]))
             
     mean = np.mean(result_list)
     #ci  = st.t.interval(0.95, len(result_list)-1, loc=mean, scale=st.sem(result_list))
@@ -288,6 +288,18 @@ def build_result_sumary(result_dict, spks, name_fn):
             <td style="text-align:center;">{:.3f}</td>
             <td style="text-align:center;">{:.3f}</td>
           </tr>\n'''.format(*dict_stats(result_dict['diff_f0_mean'], False))
+          
+    if 'diff_f0_mean' in result_dict:
+        table += '''
+          <tr>
+            <td style="text-align:center;">Abs of diff of log mean F0</td>
+            <td style="text-align:center;">{:.3f}</td>
+            <td style="text-align:center;">{:.3f}</td>
+            <td style="text-align:center;">{:.3f}</td>
+            <td style="text-align:center;">{:.3f}</td>
+            <td style="text-align:center;">{:.3f}</td>
+            <td style="text-align:center;">{:.3f}</td>
+          </tr>\n'''.format(*dict_stats(result_dict['diff_f0_mean'], False, transf = np.abs))
 
     if 'diff_f0_var' in result_dict:      
         table += '''
