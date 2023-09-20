@@ -79,15 +79,15 @@ class FiLMResnetBlock(nn.Module):
                 weight_norm(nn.Conv1d(n_channel,n_channel,
                            kernel_size=1))
                 )
-        #if not n_cond_var:
-        #    self.cond = weight_norm(nn.Linear(n_cond_const,2*n_channel))
-        #else:
-        self.cond_var = nn.Sequential(
-                weight_norm(nn.Conv1d(n_cond_const+n_cond_var, n_cond_const+n_cond_var, 
-                                      kernel_size=3, padding='same')),
-                nn.LeakyReLU(leaky_relu_slope),
-                weight_norm(nn.Conv1d(n_cond_const+n_cond_var, n_channel*2, 
-                                      kernel_size=3, padding='same')))
+
+        self.cond = weight_norm(nn.Linear(n_cond_const,2*n_channel))
+
+        # self.cond_var = nn.Sequential(
+        #         weight_norm(nn.Conv1d(n_cond_const+n_cond_var, n_cond_const+n_cond_var, 
+        #                               kernel_size=3, padding='same')),
+        #         nn.LeakyReLU(leaky_relu_slope),
+        #         weight_norm(nn.Conv1d(n_cond_const+n_cond_var, n_channel*2, 
+        #                               kernel_size=3, padding='same')))
         self.shortcut = weight_norm(nn.Conv1d(n_channel,n_channel, kernel_size=1))
     
     def forward(self,x,c):
@@ -321,7 +321,7 @@ class Decoder(nn.Module):
         return scaled_c
             
         
-    def forward(self, x, c = None, c_var = None):
+    def forward(self, x, c = None): #, c_var = None):
         if not self.cin:
             if self.spk_conditioning:
                 c = c.unsqueeze(2).repeat(1,1,x.size(2))
@@ -330,21 +330,21 @@ class Decoder(nn.Module):
                 x = mod(x)
         else:
             curr_scale = 0
-            c_const = c.unsqueeze(2).repeat(1,1,x.size(2))
-            if c_var is not None:
-                c_var_scales = self.get_scaled_conditioning(c_var)
-                c = torch.cat([c_const, c_var_scales[-1]],dim=1)
-            else:
-                c = c_const
+            # c_const = c.unsqueeze(2).repeat(1,1,x.size(2))
+            # if c_var is not None:
+            #     c_var_scales = self.get_scaled_conditioning(c_var)
+            #     c = torch.cat([c_const, c_var_scales[-1]],dim=1)
+            # else:
+            #     c = c_const
             
             for i, mod in enumerate(self.decoder):
-                if i == self.upsample_idxs[curr_scale]:
-                    c_const = c_const.repeat(1,1,self.upsample_ratios[curr_scale])
-                    curr_scale += 1
-                    if c_var is not None:
-                        c = torch.cat([c_const, c_var_scales[-1-curr_scale]],dim=1)
-                    else:
-                        c = c_const
+                # if i == self.upsample_idxs[curr_scale]:
+                #     c_const = c_const.repeat(1,1,self.upsample_ratios[curr_scale])
+                #     curr_scale += 1
+                #     if c_var is not None:
+                #         c = torch.cat([c_const, c_var_scales[-1-curr_scale]],dim=1)
+                #     else:
+                #         c = c_const
                 if type(mod) in [CINResnetBlock, ConditionalInstanceNorm, FiLMResnetBlock]:
                     x = mod(x,c)
                 else:
@@ -442,7 +442,7 @@ class Generator(nn.Module):
         else:
             x = self._bottleneck(x,c_tgt)
         
-        x = self.decoder(x,c_tgt, c_var)
+        x = self.decoder(x,c_tgt)
         
 #        if self.output_content_emb:
 #            return x, content_emb
