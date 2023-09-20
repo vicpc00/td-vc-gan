@@ -28,12 +28,12 @@ class Discriminator(nn.Module):
             
             self.discriminator += [nn.Sequential(normalization(nn.Conv1d(nf_prev,nf,
                                                                          kernel_size=downsampling_factor*10+1,
-                                                                         stride=1,
+                                                                         stride=downsampling_factor,
                                                                          padding=downsampling_factor*5,
                                                                          groups=nf_prev)),
                                                  FilteredLReLU(leaky_relu_slope,
-                                                               up_factor=2, dn_factor=2*downsampling_factor, 
-                                                               up_fc=0.5, dn_fc=1/(2*downsampling_factor)))]
+                                                               up_factor=2, dn_factor=2, 
+                                                               up_fc=0.5, dn_fc=0.5))]
         self.discriminator += [nn.Sequential(normalization(nn.Conv1d(nf,nf,
                                                                      kernel_size=5,
                                                                      padding=2)),
