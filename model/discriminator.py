@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from util.dsp import kaiser_filter
+
 class Discriminator(nn.Module):
     def __init__(self, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4, conditional_dim=32, conditional='both'):
         super().__init__()
@@ -25,7 +27,7 @@ class Discriminator(nn.Module):
                                                                          kernel_size=downsampling_factor*10+1,
                                                                          stride=downsampling_factor,
                                                                          padding=downsampling_factor*5,
-                                                                         groups=nf_prev)),
+                                                                         groups=nf_prev//num_channel_mult)),
                                                  nn.LeakyReLU(leaky_relu_slope, inplace=True))]
         self.discriminator += [nn.Sequential(normalization(nn.Conv1d(nf,nf,
                                                                      kernel_size=5,
@@ -43,7 +45,7 @@ class Discriminator(nn.Module):
             features.append(x)
             
         x = self.output(x)
-        
+
         idx = label_tgt.view(-1,1,1).expand(-1,1,x.shape[2])
         
         out = x.gather(dim = 1, index = idx)
@@ -71,3 +73,46 @@ class MultiscaleDiscriminator(nn.Module):
             
         out, features = zip(*ret)
         return list(out), list(features)
+
+class CollaborativeMultibandDiscriminator(nn.Module):
+    def __init__(self, num_disc, num_classes, num_layers, num_channels_base, num_channel_mult=4, downsampling_factor=4, conditional_dim=32, conditional='both'):
+        super().__init__()
+        
+        self.discriminators = nn.ModuleList()
+        for i in range(num_disc):
+            self.discriminators += [Discriminator(num_classes, num_layers, num_channels_base, num_channel_mult, downsampling_factor, conditional_dim, conditional)]
+        
+        self.pooling = nn.AvgPool1d(kernel_size=4, stride=2, padding=1, count_include_pad=False)
+        
+        L = 129
+        f = kaiser_filter(L, 0.5, 10)
+        f = f.view(1,1,-1)
+        self.L = L
+        
+        self.register_buffer('down_filter', f, persistent=False)
+
+    def forward(self,x, label_tgt, subscales = []):
+        ret = []
+        
+        for disc in self.discriminators:
+            ret.append(disc(x, label_tgt))
+            #x = self.pooling(x)
+            x = F.conv1d(x, self.down_filter, 
+                         stride=2, 
+                         padding=(self.L-1)//2)
+            
+        for x_sub, disc in zip(subscales, reversed(self.discriminators)):
+            ret.append(disc(x_sub, label_tgt))
+            
+        out, features = zip(*ret)
+        return list(out), list(features)
+    
+    def get_subsamples(self, x):
+        ret = []
+        for i in range(len(self.discriminators)-1):
+            x = F.conv1d(x, self.down_filter, 
+                         stride=2, 
+                         padding=(self.L-1)//2)
+            ret.append(x)
+        
+        return list(reversed(ret))
