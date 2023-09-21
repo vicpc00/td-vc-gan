@@ -255,7 +255,7 @@ def main():
             if iter_count % hp.train.D_step_interval == 0:
                 
                 #Compute fake signal
-                signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
+                signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
                 sig_real_cont_emb = G.content_embedding.clone()
                 
                 #Real signal losses
@@ -314,7 +314,8 @@ def main():
             #Generator training
             if iter_count % hp.train.G_step_interval == 0: #N steps of D for each steap of G
                 #Fake signal losses
-                signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
+                signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
+                #signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
                 sig_real_cont_emb = G.content_embedding.clone()
                 out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt)
 
@@ -336,7 +337,7 @@ def main():
                 g_loss_rec = torch.zeros(1, device=device)
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec = G(signal_fake, c_src, c_var = c_f0_src)
+                    signal_rec, signal_rec_subsamples = G(signal_fake, c_src, c_var = c_f0_src, out_subsample = True)
                     
                     sig_fake_cont_emb = G.content_embedding.clone()
                     if hp.train.lambda_feat > 0:
@@ -357,10 +358,11 @@ def main():
                 g_loss_idt = torch.zeros(1, device=device)
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
-                        signal_idt = G(signal_real, c_src, c_var = c_f0_src)
+                        signal_idt, signal_idt_subsamples = G(signal_real, c_src, c_var = c_f0_src, out_subsample = True)
 
                     else:
                         signal_idt = signal_fake
+                        signal_idt_subsamples = signal_fake_subsamples
                         
                     if hp.train.lambda_feat > 0:
                         _, features_idt_list = D(signal_idt, label_src)
