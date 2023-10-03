@@ -31,6 +31,7 @@ class WaveDataset(Dataset):
         self.return_index = return_index
         self.max_segment_size = max_segment_size
         self.min_segment_size = 10*8*2*2*16
+        self.segment_multi = 10*8*2*2
         self.augment = False
         
         self.augment_noise = augment_noise
@@ -88,6 +89,9 @@ class WaveDataset(Dataset):
         if signal.shape[0] < self.min_segment_size:
             #print(file_path, signal.shape)
             signal = np.pad(signal, (0, self.min_segment_size - signal.shape[0]), 'constant', constant_values=0)
+        if signal.shape[0] % self.segment_multi:
+            pad = -self.segment_multi*(-signal.shape[0]//self.segment_multi) - signal.shape[0]
+            signal = np.pad(signal, (0, pad), 'constant', constant_values=0)
             
         if len(signal[np.abs(signal)>0])==0:
             print(f'All zero signal at signal {self.dataset[index]}, idx {idx}')
