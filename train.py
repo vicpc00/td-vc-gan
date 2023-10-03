@@ -34,6 +34,7 @@ import util.losses
 
 #import timeit
 
+torch.autograd.set_detect_anomaly(True)
 
 def label2onehot(labels, n_classes):
     #labels: (batch_size,)

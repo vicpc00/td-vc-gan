@@ -30,7 +30,7 @@ class WaveDataset(Dataset):
         self.sr = sample_rate
         self.return_index = return_index
         self.max_segment_size = max_segment_size
-        self.min_segment_size = 128*32
+        self.min_segment_size = 10*8*2*2*16
         self.augment = False
         
         self.augment_noise = augment_noise
@@ -130,7 +130,8 @@ def collate_fn(data):
         signals, labels = zip(*data)
     
     max_len = max([sig.shape[1] for sig in signals])
-    max_len = -1024*(-max_len//1024)
+    #max_len = -1024*(-max_len//1024)
+    #max_len
     signals_pad = [F.pad(sig, (0,max_len - sig.shape[1]), 'constant', value=0) for sig in signals]
     
 

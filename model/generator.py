@@ -6,6 +6,8 @@ import torch.nn.functional as F
 import util
 from model.conditional_instance_norm import ConditionalInstanceNorm
 
+from model.ssl_encoder import SSLEncoder
+
 class DecoderResnetBlock(nn.Module):
     def __init__(self, n_channel, dilation=1, kernel_size = 3, leaky_relu_slope = 0.2):
         super().__init__()
@@ -154,15 +156,16 @@ class ExciteDownsampleBlock(nn.Module):
         
         self.shortcut = nn.Conv1d(in_channel, out_channel, kernel_size=1)
         f = util.kaiser_filter(16*scale_factor, 1/scale_factor)
-        f = f.expand(-1, out_channel, -1)
+        f = f.expand(out_channel, 1, -1)
         self.register_buffer(f'shortcut_filter', f, persistent=False)
     
     def forward(self, x):
+
         x_sh = self.shortcut(x)
         x_sh = F.conv1d(x_sh, self.shortcut_filter, 
                         stride=self.scale_factor, 
-                        padding=8*self.scale_factor)
-        
+                        padding=8*self.scale_factor, 
+                        groups=x_sh.shape[1])
         for mod in self.block:
             x = mod(x)
         
@@ -445,7 +448,8 @@ class Generator(nn.Module):
         self.cin = True
         
         self.decoder = Decoder(decoder_ratios, decoder_channels[:], num_res_blocks, dec_cond_dim, content_dim, dec_norm_layer, dec_weight_norm)
-        self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, enc_cond_dim, content_dim, enc_norm_layer, enc_weight_norm)
+        #self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, enc_cond_dim, content_dim, enc_norm_layer, enc_weight_norm)
+        self.encoder = SSLEncoder()
         
         bottleneck = nn.ModuleList()
         if not self.cin:
@@ -481,8 +485,7 @@ class Generator(nn.Module):
     def forward(self,x,c_tgt, c_src = None, c_var = None, out_subsample = False):
         c_tgt = self.embedding(c_tgt)
         c_src = self.embedding(c_src) if c_src != None else None
-        
-        x = self.encoder(x,c_src)
+        x = self.encoder(x)
         if self.output_content_emb:
             self.content_embedding=x
         
