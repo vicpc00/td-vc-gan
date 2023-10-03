@@ -152,14 +152,15 @@ class ExciteDownsampleBlock(nn.Module):
         
         self.shortcut = nn.Conv1d(in_channel, out_channel, kernel_size=1)
         f = util.kaiser_filter(16*scale_factor, 1/scale_factor)
-        f = f.expand(-1, out_channel, -1)
+        f = f.expand(out_channel, 1, -1)
         self.register_buffer(f'shortcut_filter', f, persistent=False)
     
     def forward(self, x):
         x_sh = self.shortcut(x)
         x_sh = F.conv1d(x_sh, self.shortcut_filter, 
                         stride=self.scale_factor, 
-                        padding=8*self.scale_factor)
+                        padding=8*self.scale_factor,
+                        groups=x_sh.shape[1])
         
         for mod in self.block:
             x = mod(x)
