@@ -242,7 +242,7 @@ class Encoder(nn.Module):
                                        kernel_size = 7, stride = 1, padding=3,))]
         if embedding_dim:
             model += [nn.LeakyReLU(leaky_relu_slope),
-                      weight_norm(nn.Conv1d(channel_sizes[-1], embedding_dim,
+                      weight_norm(nn.Conv1d(channel_sizes[-1], embedding_dim*2,
                                            kernel_size = 7, stride = 1, padding=3, bias=False))]
 
         
@@ -265,8 +265,9 @@ class Encoder(nn.Module):
                     x = mod(x,c)
                 else:
                     x = mod(x)
-        x = F.normalize(x, dim=1)
-        return x
+        mu, log_sigma = x.chunk(2, dim=1)
+        x = mu + torch.randn_like(mu)*torch.exp(log_sigma)
+        return x, (mu, log_sigma)
         #return self.encoder(x)
           
 
@@ -483,9 +484,10 @@ class Generator(nn.Module):
         c_tgt = self.embedding(c_tgt)
         c_src = self.embedding(c_src) if c_src != None else None
         
-        x = self.encoder(x,c_src)
+        x, stats = self.encoder(x,c_src)
         if self.output_content_emb:
             self.content_embedding=x
+            self.content_distribution = stats
         
         if self.both_cond:
             c = torch.cat([c_src,c_tgt],dim=1)

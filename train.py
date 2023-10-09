@@ -318,6 +318,7 @@ def main():
                 signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
                 #signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
                 sig_real_cont_emb = G.content_embedding.clone()
+                sig_real_cont_emb_mu, sig_real_cont_emb_logsig = (t.clone() for t in G.content_distribution)
                 out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt, signal_fake_subsamples)
 
                 g_loss_adv_fake = torch.zeros(1, device=device)
@@ -380,11 +381,16 @@ def main():
                         g_loss_rec += hp.train.lambda_wave*g_loss_idt_wave
                         loss['G_loss_idt_wave'] = g_loss_idt_wave
                 
+                #Cont KL loss
+                if hp.train.lambda_cont_klloss > 0:
+                    g_loss_cont_emb_kl = util.losses.kl_loss(sig_real_cont_emb_mu, sig_real_cont_emb_logsig)
+                else:
+                    g_loss_cont_emb_kl = torch.zeros(1, device=device)
 
                 #Content embedding loss
                 if hp.train.lambda_cont_emb > 0:
                     if hp.train.lambda_rec == 0:    
-                        sig_fake_cont_emb = G.encoder(signal_fake)
+                        sig_fake_cont_emb, _ = G.encoder(signal_fake)
                     g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
                 else:
                     g_loss_cont_emb = torch.zeros(1, device=device)
@@ -453,7 +459,8 @@ def main():
                          hp.train.lambda_idt*g_loss_idt + \
                          hp.train.lambda_latcls*g_loss_lat_cls + \
                          hp.train.lambda_cont_emb*g_loss_cont_emb + \
-                         hp.train.lambda_f0*g_loss_f0
+                         hp.train.lambda_f0*g_loss_f0 + \
+                         hp.train.lambda_cont_klloss*g_loss_cont_emb_kl
 
                 #Optimize
                 optimizer_D.zero_grad()
@@ -473,6 +480,7 @@ def main():
                 loss['G_loss_lat_cls'] = g_loss_lat_cls.item()
                 loss['G_loss_cont_emb'] = g_loss_cont_emb.item()
                 loss['g_loss_f0'] = g_loss_f0.item()
+                loss['g_loss_cont_emb_kl'] = g_loss_cont_emb_kl
          
                 del out_adv_fake_list
                 del out_adv_fake

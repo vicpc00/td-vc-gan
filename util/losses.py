@@ -67,6 +67,16 @@ def multiscale_feat_loss(feat_sig_list, feat_ref_list, norm_p = 1):
         
     return sum(losses)
 
+def kl_loss(m_p, logs_p, m_q = 0, logs_q = None):
+    """KL(P||Q)"""
+    if m_q == 0:
+        m_q = torch.zeros_like(m_p)
+        logs_q = torch.zeros_like(logs_p)
+    kl = (logs_q - logs_p) - 0.5
+    kl += 0.5 * (torch.exp(2. * logs_p) + ((m_p - m_q)**2)) * torch.exp(-2. * logs_q)
+    kl = torch.mean(kl)
+    return kl
+
 
 
 
