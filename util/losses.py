@@ -27,7 +27,7 @@ def multiscale_spec_loss_pwg(signal, ref, fft_sizes, spectype = 'both', return_s
     
 @functools.lru_cache(maxsize=None)
 def get_melspec_transform(sr, n_fft, n_mels, device):
-    t = torchaudio.transforms.MelSpectrogram(sample_rate = sr, n_fft = n_fft, hop_length = n_fft//4, n_mels = n_mels)
+    t = torchaudio.transforms.MelSpectrogram(sample_rate = sr, n_fft = n_fft, hop_length = n_fft//4, n_mels = n_mels, norm = 'slaney')
     return t.to(device)
     
 def multiscale_spec_loss(signal, ref, fft_sizes, spectype = 'both', return_separated = False, norm_p = 1):
