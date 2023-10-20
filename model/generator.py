@@ -166,6 +166,7 @@ class ExciteDownsampleBlock(nn.Module):
                         stride=self.scale_factor, 
                         padding=8*self.scale_factor, 
                         groups=x_sh.shape[1])
+
         for mod in self.block:
             x = mod(x)
         
