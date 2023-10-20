@@ -54,6 +54,12 @@ def eq_rms(signal, target_rms):
     rms = np.sqrt((signal**2).mean())
     gain = 10**(target_rms/20)/rms
     return signal*gain
+
+def eq_rms_signals(signal_eq, signal_tgt):
+    rms_eq = np.sqrt((signal_eq**2).mean())
+    rms_tgt = np.sqrt((signal_tgt**2).mean())
+    
+    return signal_eq*rms_tgt/(rms_eq+1e-8)
     
 def load_possible(model, state_dict):
     state_dict_old = model.state_dict()

@@ -107,7 +107,7 @@ def main():
 
     train_dataset = dataset.WaveDataset(data_path / 'train_files', data_path / 'speakers', sample_rate=hp.model.sample_rate, 
                                         max_segment_size = hp.train.max_segment, augment_noise = 1e-9, 
-                                        normalization_db = hp.train.normalization_db, data_augment = True)
+                                        normalization_db = hp.train.normalization_db, data_augment = True, corrupt = True)
     test_dataset = dataset.WaveDataset(data_path / 'test_files', data_path / 'speakers', sample_rate=hp.model.sample_rate,
                                         max_segment_size = hp.test.max_segment, normalization_db = hp.train.normalization_db)
 
@@ -209,7 +209,7 @@ def main():
             loss = {}
 
             #Real data
-            signal_real, label_src = data
+            signal_real, signal_corrupted, label_src = data
             c_src = label2onehot(label_src,train_dataset.num_spk)
             if hp.train.no_conv:
                 label_tgt = label_src
@@ -225,6 +225,7 @@ def main():
             
             #Send everything to device
             signal_real = signal_real.to(device)
+            signal_corrupted = signal_corrupted.to(device)
             label_src = label_src.to(device)
             label_tgt = label_tgt.to(device)
             c_src = c_src.to(device)
@@ -383,10 +384,20 @@ def main():
                 
 
                 #Content embedding loss
+                """
                 if hp.train.lambda_cont_emb > 0:
                     if hp.train.lambda_rec == 0:    
                         sig_fake_cont_emb = G.encoder(signal_fake)
                     g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
+                else:
+                    g_loss_cont_emb = torch.zeros(1, device=device)
+                """
+                
+                #Content embedding loss
+                if hp.train.lambda_cont_emb > 0:
+                    sig_corrupted_cont_emb = G.encoder(signal_corrupted)
+                    g_loss_cont_emb = util.losses.contrastive_loss(sig_real_cont_emb, sig_corrupted_cont_emb, 
+                                                              num_negatives = 100, temp=0.1)
                 else:
                     g_loss_cont_emb = torch.zeros(1, device=device)
 

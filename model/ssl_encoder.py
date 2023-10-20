@@ -132,9 +132,10 @@ class SSLEncoder(nn.Module):
         self.encoder = Encoder(ssl_dim, emb_dim, hidden_channels, kernel_size, dilation_rate, n_layers)
         
     def forward(self, x):
-        x = F.pad(x, (160, 0))
-        c = self.cmodel.extract_features(x.squeeze(1))[0]
-        c = c.transpose(1, 2)
+        with torch.no_grad():
+            x = F.pad(x, (160, 0))
+            c = self.cmodel.extract_features(x.squeeze(1))[0]
+            c = c.transpose(1, 2)
         z, m, logs, _ = self.encoder(c)
         
         return m
