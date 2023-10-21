@@ -61,29 +61,34 @@ class WaveDataset(Dataset):
                     #print(self.spk_dict)
             self.num_spk = len(self.spk_dict.keys())
             
+        self.corr_succ = 0
+        self.corr_warn = 0
+        self.corr_err = 0
+            
     def corrupt_audio(self, signal, filename):
         try:
             signal_corr = audio_corruption.random_formant_f0(signal, self.sr)
             #print(f'Success - {filename}')
+            #self.corr_succ += 1
         except (UserWarning, parselmouth.PraatWarning):
             signal_corr = np.copy(signal)
-            print(f"Praat Warning - {filename}")
+            #print(f"Praat Warning - {filename}")
+            #self.corr_warn += 1
         #except RuntimeWarning:
         #    signal_corr = np.copy(signal)
         #    print(f"NumPy warining - {filename}")
         except (RuntimeError, RuntimeWarning):
             signal_corr = np.copy(signal)
-            print(f"Praat Error - {filename}")
-        
+            #print(f"Praat Error - {filename}")
+            #self.corr_err += 1
         signal_corr = audio_corruption.random_eq(signal, self.sr)
-        
         signal_corr = util.eq_rms_signals(signal_corr, signal)
-        
         return signal_corr
                 
 
     def __getitem__(self, index):
         file_path,label = self.dataset[index]
+        #print(file_path)
 
         if self.mode == 'wav' or self.mode == 'flac':
             signal,sr = sf.read(file_path)
@@ -119,7 +124,8 @@ class WaveDataset(Dataset):
         if signal.shape[0] % self.segment_multi:
             pad = -self.segment_multi*(-signal.shape[0]//self.segment_multi) - signal.shape[0]
             signal = np.pad(signal, (0, pad), 'constant', constant_values=0)
-            
+        rms = np.sqrt((signal**2).mean())
+        #print(f'RMS: {rms} / {20*np.log10(rms)} dB')
         if len(signal[np.abs(signal)>0])==0:
             print(f'All zero signal at signal {self.dataset[index]}, idx {idx}')
         
@@ -147,6 +153,10 @@ class WaveDataset(Dataset):
     def get_label(self, index):
         _,label = self.dataset[index]
         return label, self.spk_dict[label]
+    def get_corr_status(self):
+        return self.corr_succ, self.corr_warn, self.corr_err
+    def reset_corr_status(self):
+        self.corr_succ = self.corr_warn = self.corr_err = 0
 
 class SpeakerDataset(WaveDataset):
 
