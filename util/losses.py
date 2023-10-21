@@ -79,7 +79,7 @@ def contrastive_loss(sig_X, sig_Y, num_negatives = 100, temp=1):
             idxs = torch.randint(low = 0, high = T-1,
                                  size = (B, T, n_neg), 
                                  device=X.device) #BxTxN
-            self_idxs = torch.arange(T, device=X.device).unsqueeze(-1).expand(-1, num_negatives)
+            self_idxs = torch.arange(T, device=X.device).unsqueeze(-1).expand(-1, n_neg)
             idxs[idxs >= self_idxs] += 1
             
             #Preping to gather
