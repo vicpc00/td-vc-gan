@@ -67,6 +67,60 @@ def multiscale_feat_loss(feat_sig_list, feat_ref_list, norm_p = 1):
         
     return sum(losses)
 
+def contrastive_loss(sig_X, sig_Y, num_negatives = 100, temp=1):
+    #Tensors: BxCxT
+    
+    def sample_negative(X, n_neg):
+        
+        B, C, T = X.shape
+        
+        with torch.no_grad():
+            
+            idxs = torch.randint(low = 0, high = T-1,
+                                 size = (B, T, n_neg), 
+                                 device=X.device) #BxTxN
+            self_idxs = torch.arange(T, device=X.device).unsqueeze(-1).expand(-1, n_neg)
+            idxs[idxs >= self_idxs] += 1
+            
+            #Preping to gather
+            X = X.unsqueeze(2).expand(-1, -1, T, -1) #BxCxTxT; repeat on dim 2 to gather on dim 3
+            idxs = idxs.unsqueeze(1).expand(-1, C, -1, -1) #BxCxTxN
+            #print(X.shape, idxs.shape)
+            
+            negs = X.gather(3, idxs)
+            
+        return negs #BxCxTxN
+    
+    def compute_similarity(X, Y, negs, temp = 1):
+        #X, Y: BxCxT
+        #negs: BxCxTxN
+        targets = torch.cat([Y.unsqueeze(-1), negs], dim=-1) #index 0 is the positive, rest is negative
+        
+        logits = F.cosine_similarity(X.unsqueeze(-1), targets, dim=1) #BxTxN
+        logits = logits/temp
+        
+        return logits
+    
+    negs_X = sample_negative(sig_X, num_negatives)
+    negs_Y = sample_negative(sig_Y, num_negatives)
+    
+    logits_X = compute_similarity(sig_X, sig_Y, negs_X)
+    logits_Y = compute_similarity(sig_Y, sig_X, negs_Y)
+    
+    logits = torch.cat((logits_X, logits_Y), dim=0)
+    targets = torch.zeros(logits.shape[:-1], dtype=torch.long, device=logits.device)
+    #print(logits.shape, targets.shape)
+    
+    loss = F.cross_entropy(logits.transpose(1,2), targets)
+    
+    return loss
+    
+    
+    
+    
+            
+            
+    
 
 
 

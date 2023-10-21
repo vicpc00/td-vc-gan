@@ -381,7 +381,10 @@ def main():
                 if hp.train.lambda_cont_emb > 0:
                     if hp.train.lambda_rec == 0:    
                         sig_fake_cont_emb = G.encoder(signal_fake)
-                    g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
+                    #g_loss_cont_emb = torch.mean(torch.abs(sig_fake_cont_emb - sig_real_cont_emb))
+                    g_loss_cont_emb = util.losses.contrastive_loss(sig_real_cont_emb,
+                                                                   sig_fake_cont_emb,
+                                                                   num_negatives = 100, temp=0.1)
                 else:
                     g_loss_cont_emb = torch.zeros(1, device=device)
 
