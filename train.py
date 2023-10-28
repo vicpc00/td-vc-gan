@@ -257,9 +257,9 @@ def main():
             if iter_count % hp.train.D_step_interval == 0:
                 
                 #Compute fake signal
-                signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
+                signal_fake, signal_fake_subsamples = G(signal_corrupted, c_tgt, c_var = c_f0_conv, out_subsample = True)
                 sig_real_cont_emb = G.content_embedding.clone()
-                signal_real_subsamples = D.get_subsamples(signal_real)
+                signal_real_subsamples = D.get_subsamples(signal_corrupted)
                 
                 #Real signal losses
                 out_adv_real_list, features_real_list = D(signal_real, label_src, signal_real_subsamples)
@@ -317,7 +317,7 @@ def main():
             #Generator training
             if iter_count % hp.train.G_step_interval == 0: #N steps of D for each steap of G
                 #Fake signal losses
-                signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
+                signal_fake, signal_fake_subsamples = G(signal_corrupted, c_tgt, c_var = c_f0_conv, out_subsample = True)
                 #signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
                 sig_real_cont_emb = G.content_embedding.clone()
                 out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt, signal_fake_subsamples)
@@ -362,7 +362,7 @@ def main():
                 g_loss_idt = torch.zeros(1, device=device)
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
-                        signal_idt, signal_idt_subsamples = G(signal_real, c_src, c_var = c_f0_src, out_subsample = True)
+                        signal_idt, signal_idt_subsamples = G(signal_corrupted, c_src, c_var = c_f0_src, out_subsample = True)
 
                     else:
                         signal_idt = signal_fake
@@ -395,7 +395,7 @@ def main():
                 
                 #Content embedding loss
                 if hp.train.lambda_cont_emb > 0:
-                    sig_corrupted_cont_emb = G.encoder(signal_corrupted)
+                    sig_corrupted_cont_emb = G.encoder(signal_real)
                     g_loss_cont_emb = util.losses.contrastive_loss(sig_real_cont_emb, sig_corrupted_cont_emb, 
                                                               num_negatives = 100, temp=0.1)
                 else:
