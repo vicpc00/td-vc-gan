@@ -116,20 +116,27 @@ class Encoder(nn.Module):
         return z, m, logs, x_mask
 
 class SSLEncoder(nn.Module):
-    def __init__(self, emb_dim = 128, hidden_channels = 128, kernel_size = 5, dilation_rate = 1, n_layers = 16):
+    def __init__(self, encoder_model = 'wavlm', 
+                 num_layers = 16, emb_dim = 128, 
+                 kernel_size = 5, dilation_rate = 1, 
+                 weight_norm = lambda x: x):
         super().__init__()
         
-        print("Loading WavLM for content...")
-        checkpoint = torch.load('wavlm/WavLM-Large.pt')
-        cfg = WavLMConfig(checkpoint['cfg'])
-        self.cmodel = WavLM(cfg).cuda()
-        self.cmodel.load_state_dict(checkpoint['model'])
-        self.cmodel.eval()
-        print("Loaded WavLM.")
+        self.encoder_model = encoder_model
+        if encoder_model == 'wavlm':
+            print("Loading WavLM for content...")
+            checkpoint = torch.load('wavlm/WavLM-Large.pt')
+            cfg = WavLMConfig(checkpoint['cfg'])
+            self.cmodel = WavLM(cfg).cuda()
+            self.cmodel.load_state_dict(checkpoint['model'])
+            self.cmodel.eval()
+            print("Loaded WavLM.")
+            
+            ssl_dim = 1024
+        else:
+            raise NotImplementedError("Unknown encoder model")
         
-        ssl_dim = 1024
-        
-        self.encoder = Encoder(ssl_dim, emb_dim, hidden_channels, kernel_size, dilation_rate, n_layers)
+        self.encoder = Encoder(ssl_dim, emb_dim, emb_dim, kernel_size, dilation_rate, num_layers)
         
     def forward(self, x):
         with torch.no_grad():

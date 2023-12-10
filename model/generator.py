@@ -408,7 +408,8 @@ class Decoder(nn.Module):
 
 class Generator(nn.Module):
     def __init__(self, decoder_ratios, decoder_channels, 
-                 num_bottleneck_layers, num_classes, conditional_dim, content_dim = None, num_res_blocks = 3,
+                 num_bottleneck_layers, num_classes, conditional_dim, content_dim = None, num_res_blocks = 3, 
+                 num_enc_layers = 0, encoder_model = None,
                  norm_layer = None, weight_norm = None, #either None, str or (str,str,str)
                  bot_cond = 'target', enc_cond = None, dec_cond = None, 
                  output_content_emb = False):
@@ -449,8 +450,11 @@ class Generator(nn.Module):
         self.cin = True
         
         self.decoder = Decoder(decoder_ratios, decoder_channels[:], num_res_blocks, dec_cond_dim, content_dim, dec_norm_layer, dec_weight_norm)
-        #self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, enc_cond_dim, content_dim, enc_norm_layer, enc_weight_norm)
-        self.encoder = SSLEncoder()
+        if encoder_model in ['wavlm']:
+            self.encoder = SSLEncoder(encoder_model, num_enc_layers, content_dim, weight_norm = enc_weight_norm)
+        else:
+            self.encoder = Encoder(decoder_ratios[::-1], decoder_channels[::-1], num_res_blocks, enc_cond_dim, content_dim, enc_norm_layer, enc_weight_norm)
+        
         
         bottleneck = nn.ModuleList()
         if not self.cin:
