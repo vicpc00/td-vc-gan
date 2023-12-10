@@ -394,12 +394,21 @@ def main():
                 """
                 
                 #Content embedding loss
+                g_loss_cont_emb = torch.zeros(1, device=device)
                 if hp.train.lambda_cont_emb > 0:
-                    sig_corrupted_cont_emb = G.encoder(signal_corrupted)
-                    g_loss_cont_emb = util.losses.contrastive_loss(sig_real_cont_emb, sig_corrupted_cont_emb, 
-                                                              num_negatives = 100, temp=0.1)
-                else:
-                    g_loss_cont_emb = torch.zeros(1, device=device)
+                    if hp.train.lambda_corrupted:
+                        sig_corrupted_cont_emb = G.encoder(signal_corrupted)
+                        g_loss_cont_emb_corr = util.losses.contrastive_loss(sig_real_cont_emb, sig_corrupted_cont_emb, 
+                                                                num_negatives = 100, temp=0.1)
+                        g_loss_cont_emb += g_loss_cont_emb_corr
+                    if hp.train.lambda_converted:
+                        sig_corrupted_cont_emb = G.encoder(signal_fake.detach())
+                        g_loss_cont_emb_conv = util.losses.contrastive_loss(sig_real_cont_emb, sig_corrupted_cont_emb, 
+                                                                num_negatives = 100, temp=0.1)
+                        g_loss_cont_emb_conv += g_loss_cont_emb_conv
+
+          
+                    
 
                     
                 #Latent classification loss
