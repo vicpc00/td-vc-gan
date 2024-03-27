@@ -90,6 +90,21 @@ class WaveDataset(Dataset):
         file_path,label = self.dataset[index]
         #print(file_path)
 
+        signal = self.load_audio(file_path)
+
+        if self.corrupt:
+            signal_corr = self.corrupt_audio(signal, file_path)
+
+        label = self.spk_dict[label]
+
+        if self.return_index:
+            return torch.FloatTensor(signal).unsqueeze(0), label, index
+        if self.corrupt:
+            return torch.FloatTensor(signal).unsqueeze(0), torch.FloatTensor(signal_corr).unsqueeze(0), label
+        return torch.FloatTensor(signal).unsqueeze(0), label
+    
+    def load_audio(self, file_path):
+
         if self.mode == 'wav' or self.mode == 'flac':
             signal,sr = sf.read(file_path)
             if sr != self.sr:
@@ -131,17 +146,10 @@ class WaveDataset(Dataset):
         
         if self.augment_noise != None:
             signal = signal + np.random.randn(*signal.shape)*self.augment_noise
+
+        return signal
             
-        if self.corrupt:
-            signal_corr = self.corrupt_audio(signal, file_path)
-
-        label = self.spk_dict[label]
-
-        if self.return_index:
-            return torch.FloatTensor(signal).unsqueeze(0), label, index
-        if self.corrupt:
-            return torch.FloatTensor(signal).unsqueeze(0), torch.FloatTensor(signal_corr).unsqueeze(0), label
-        return torch.FloatTensor(signal).unsqueeze(0), label
+        
 
     def __len__(self):
         return len(self.dataset)
