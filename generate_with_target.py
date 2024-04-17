@@ -109,6 +109,8 @@ def generate_signals(save_path, data_path, load_path, config_file = None, data_f
                   hp.model.generator.conditional_dim,
                   hp.model.generator.content_dim,
                   hp.model.generator.num_res_blocks,
+                  hp.model.generator.num_enc_layers,
+                  hp.model.generator.encoder_model,
                   norm_layer = (nl.bottleneck, nl.encoder, nl.decoder),
                   weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
                   bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder).to(device)

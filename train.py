@@ -20,7 +20,7 @@ import util.crepe
 import torch.utils.tensorboard as tensorboard
 
 from model.generator import Generator
-from model.discriminator import MultiscaleDiscriminator
+from model.discriminator import MultiscaleDiscriminator, CollaborativeMultibandDiscriminator
 from model.latent_classifier import LatentClassifier
 from model.f0_estimator import F0Estimator
 import data.dataset as dataset
@@ -34,6 +34,7 @@ import util.losses
 
 #import timeit
 
+torch.autograd.set_detect_anomaly(True)
 
 def label2onehot(labels, n_classes):
     #labels: (batch_size,)
@@ -106,7 +107,7 @@ def main():
 
     train_dataset = dataset.WaveDataset(data_path / 'train_files', data_path / 'speakers', sample_rate=hp.model.sample_rate, 
                                         max_segment_size = hp.train.max_segment, augment_noise = 1e-9, 
-                                        normalization_db = hp.train.normalization_db, data_augment = True)
+                                        normalization_db = hp.train.normalization_db, data_augment = True, corrupt = True)
     test_dataset = dataset.WaveDataset(data_path / 'test_files', data_path / 'speakers', sample_rate=hp.model.sample_rate,
                                         max_segment_size = hp.test.max_segment, normalization_db = hp.train.normalization_db)
 
@@ -134,18 +135,20 @@ def main():
                   hp.model.generator.conditional_dim,
                   hp.model.generator.content_dim,
                   hp.model.generator.num_res_blocks,
+                  hp.model.generator.num_enc_layers,
+                  hp.model.generator.encoder_model,
                   norm_layer = (nl.bottleneck, nl.encoder, nl.decoder),
                   weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
                   bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder,
                   output_content_emb = latent_classier)
-    D = MultiscaleDiscriminator(hp.model.discriminator.num_disc,
-                                train_dataset.num_spk,
-                                hp.model.discriminator.num_layers,
-                                hp.model.discriminator.num_channels_base,
-                                hp.model.discriminator.num_channel_mult,
-                                hp.model.discriminator.downsampling_factor,
-                                hp.model.discriminator.conditional_dim,
-                                hp.model.discriminator.conditional_spks)
+    D = CollaborativeMultibandDiscriminator(hp.model.discriminator.num_disc,
+                                            train_dataset.num_spk,
+                                            hp.model.discriminator.num_layers,
+                                            hp.model.discriminator.num_channels_base,
+                                            hp.model.discriminator.num_channel_mult,
+                                            hp.model.discriminator.downsampling_factor,
+                                            hp.model.discriminator.conditional_dim,
+                                            hp.model.discriminator.conditional_spks)
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
         C = LatentClassifier(train_dataset.num_spk,hp.model.generator.content_dim)
@@ -182,8 +185,8 @@ def main():
     G.to(device)
     D.to(device)       
 
-    optimizer_G = torch.optim.Adam(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
-    optimizer_D = torch.optim.Adam(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
+    optimizer_G = torch.optim.AdamW(G.parameters(), hp.train.lr_g, hp.train.adam_beta)
+    optimizer_D = torch.optim.AdamW(D.parameters(), hp.train.lr_d, hp.train.adam_beta)
 
     if 'C' in locals():
         optimizer_C = torch.optim.Adam(C.parameters(), hp.train.lr_d, hp.train.adam_beta)
@@ -208,7 +211,7 @@ def main():
             loss = {}
 
             #Real data
-            signal_real, label_src = data
+            signal_real, signal_corrupted, label_src = data
             c_src = label2onehot(label_src,train_dataset.num_spk)
             if hp.train.no_conv:
                 label_tgt = label_src
@@ -224,6 +227,7 @@ def main():
             
             #Send everything to device
             signal_real = signal_real.to(device)
+            signal_corrupted = signal_corrupted.to(device)
             label_src = label_src.to(device)
             label_tgt = label_tgt.to(device)
             c_src = c_src.to(device)
@@ -255,21 +259,22 @@ def main():
             if iter_count % hp.train.D_step_interval == 0:
                 
                 #Compute fake signal
-                signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
+                signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
                 sig_real_cont_emb = G.content_embedding.clone()
+                signal_real_subsamples = D.get_subsamples(signal_real)
                 
                 #Real signal losses
-                out_adv_real_list, features_real_list = D(signal_real, label_src)
+                out_adv_real_list, features_real_list = D(signal_real, label_src, signal_real_subsamples)
                 #Fake signal losses
-                out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt)
+                out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt, signal_fake_subsamples)
                 
                 d_loss_adv_real = 0
                 d_loss_adv_fake = 0
                 for i, (out_adv_fake, out_adv_real) in enumerate(zip(out_adv_fake_list,out_adv_real_list)):
                     d_loss_adv_real_ = F.mse_loss(out_adv_real,torch.ones(out_adv_real.size(), device=device))
                     d_loss_adv_fake_ = F.mse_loss(out_adv_fake,torch.zeros(out_adv_fake.size(), device=device))
-                    #loss[f'D_loss_adv_real_{i}'] = d_loss_adv_real_.item()
-                    #loss[f'D_loss_adv_fake_{i}'] = d_loss_adv_fake_.item()
+                    loss[f'D_loss_adv_real_{i}'] = d_loss_adv_real_.item()
+                    loss[f'D_loss_adv_fake_{i}'] = d_loss_adv_fake_.item()
                     d_loss_adv_real += d_loss_adv_real_
                     d_loss_adv_fake += d_loss_adv_fake_
                     
@@ -314,14 +319,15 @@ def main():
             #Generator training
             if iter_count % hp.train.G_step_interval == 0: #N steps of D for each steap of G
                 #Fake signal losses
-                signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
+                signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
+                #signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
                 sig_real_cont_emb = G.content_embedding.clone()
-                out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt)
+                out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt, signal_fake_subsamples)
 
                 g_loss_adv_fake = torch.zeros(1, device=device)
                 for i, out_adv_fake in enumerate(out_adv_fake_list):
                     g_loss_adv_fake_ = F.mse_loss(out_adv_fake,torch.ones(out_adv_fake.size(), device=device))
-                    #loss[f'G_loss_adv_fake_{i}'] = g_loss_adv_fake_
+                    loss[f'G_loss_adv_fake_{i}'] = g_loss_adv_fake_
                     g_loss_adv_fake += g_loss_adv_fake_
                     
                 if hp.train.lambda_rec > 0 or hp.train.lambda_idt > 0:
@@ -331,16 +337,17 @@ def main():
                     else:
                         signal_real_jitter = signal_real
                     if hp.train.lambda_feat > 0:
-                        _, features_real_list = D(signal_real_jitter, label_src)
+                        signal_real_subsamples = D.get_subsamples(signal_real_jitter)
+                        _, features_real_list = D(signal_real_jitter, label_src, signal_real_subsamples)
                     
                 g_loss_rec = torch.zeros(1, device=device)
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec = G(signal_fake, c_src, c_var = c_f0_src)
+                    signal_rec, signal_rec_subsamples = G(signal_fake.detach(), c_src, c_var = c_f0_src, out_subsample = True)
                     
                     sig_fake_cont_emb = G.content_embedding.clone()
                     if hp.train.lambda_feat > 0:
-                        _, features_rec_list = D(signal_rec, label_src)
+                        _, features_rec_list = D(signal_rec, label_src, signal_rec_subsamples)
                         g_loss_rec_feat = util.losses.multiscale_feat_loss(features_rec_list, features_real_list ,norm_p = 1)
                         g_loss_rec += hp.train.lambda_feat*g_loss_rec_feat
                         loss['G_loss_rec_feat'] = g_loss_rec_feat
@@ -357,13 +364,14 @@ def main():
                 g_loss_idt = torch.zeros(1, device=device)
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
-                        signal_idt = G(signal_real, c_src, c_var = c_f0_src)
+                        signal_idt, signal_idt_subsamples = G(signal_real, c_src, c_var = c_f0_src, out_subsample = True)
 
                     else:
                         signal_idt = signal_fake
+                        signal_idt_subsamples = signal_fake_subsamples
                         
                     if hp.train.lambda_feat > 0:
-                        _, features_idt_list = D(signal_idt, label_src)
+                        _, features_idt_list = D(signal_idt, label_src, signal_idt_subsamples)
                         g_loss_idt_feat = util.losses.multiscale_feat_loss(features_idt_list, features_real_list ,norm_p = 1)
                         g_loss_idt += hp.train.lambda_feat*g_loss_idt_feat
                         loss['G_loss_idt_feat'] = g_loss_idt_feat
@@ -378,6 +386,7 @@ def main():
                 
 
                 #Content embedding loss
+                """
                 if hp.train.lambda_cont_emb > 0:
                     if hp.train.lambda_rec == 0:    
                         sig_fake_cont_emb = G.encoder(signal_fake)
@@ -387,6 +396,24 @@ def main():
                                                                    num_negatives = 100, temp=0.1)
                 else:
                     g_loss_cont_emb = torch.zeros(1, device=device)
+                """
+                
+                #Content embedding loss
+                g_loss_cont_emb = torch.zeros(1, device=device)
+                if hp.train.lambda_cont_emb > 0:
+                    if hp.train.lambda_corrupted:
+                        sig_corrupted_cont_emb = G.encoder(signal_corrupted)
+                        g_loss_cont_emb_corr = util.losses.contrastive_loss(sig_real_cont_emb, sig_corrupted_cont_emb, 
+                                                                num_negatives = 100, temp=0.1)
+                        g_loss_cont_emb += g_loss_cont_emb_corr
+                    if hp.train.lambda_converted:
+                        sig_corrupted_cont_emb = G.encoder(signal_fake.detach())
+                        g_loss_cont_emb_conv = util.losses.contrastive_loss(sig_real_cont_emb, sig_corrupted_cont_emb, 
+                                                                num_negatives = 100, temp=0.1)
+                        g_loss_cont_emb_conv += g_loss_cont_emb_conv
+
+          
+                    
 
                     
                 #Latent classification loss
