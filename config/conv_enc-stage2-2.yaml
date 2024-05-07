@@ -1,0 +1,80 @@
+data: # root path of train/validation data (either relative/absoulte path is ok)
+  train: ''
+  validation: ''
+---
+train:
+  no_conv: False
+  num_workers: 24
+  batch_size: 8
+  optimizer: 'adam'
+  lr_g: 0.0001
+  lr_d: 0.0001
+  D_step_interval: 1
+  G_step_interval: 1
+  adam_beta: [0.8, 0.99]
+  start_epoch: 0
+  num_epoch: 60
+  gan_loss: 'lsgan'
+  rec_loss: 'feat'
+  lambda_cls: 1
+  lambda_rec: 10
+  lambda_idt: 1
+  lambda_feat: 2
+  lambda_spec: 5
+  lambda_wave: 0
+  lambda_latcls: 0 
+  lambda_cont_emb: 10
+  lambda_corrupted: 1
+  lambda_converted: 0
+  lambda_f0: 1000
+  grad_max_norm_D: 
+  grad_max_norm_G: 
+  max_segment: 8960
+  freeze_subnets: []
+  normalization_db: -30
+  jitter_amp: 0
+---
+test:
+  batch_size: 1
+  num_tests: 10
+  max_segment: 71680
+---
+model:
+  sample_rate: 16000
+  generator:
+    decoder_ratios: [10,8,2,2]
+    decoder_channels: [256,128,64,32,16]
+    num_bottleneck_layers: 0
+    content_dim: 128
+    conditional_dim: 128
+    num_res_blocks: 3
+    encoder_model: 'conv'
+    num_enc_layers: 16
+    norm_layer: 
+      encoder:
+      decoder: 
+      bottleneck: 
+    weight_norm:
+      encoder: 'weight_norm'
+      decoder: 'weight_norm'
+      bottleneck: 'weight_norm'
+    conditioning:
+      encoder: 
+      decoder: 'target'
+      bottleneck: 'target'
+  discriminator:
+    num_disc: 3
+    num_layers: 4
+    num_channels_base: 16
+    num_channel_mult: 4
+    downsampling_factor: 4
+    conditional_dim: 128
+    conditional_spks: 'target'
+---
+log:
+  log_interval: 1000
+  gen_interval: 5
+  gen_num: 5
+  save_interval: 5
+  val_interval: 1
+  val_lat_cls: False
