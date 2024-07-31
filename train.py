@@ -343,7 +343,7 @@ def main():
                 g_loss_rec = torch.zeros(1, device=device)
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec, signal_rec_subsamples = G(signal_fake.detach(), c_src, c_var = c_f0_src, out_subsample = True)
+                    signal_rec, signal_rec_subsamples = G(signal_fake, c_src, c_var = c_f0_src, out_subsample = True)
                     
                     sig_fake_cont_emb = G.content_embedding.clone()
                     if hp.train.lambda_feat > 0:
