@@ -52,7 +52,7 @@ def transcribe(test_file, ref_file, model, processor):
 
 
 
-def test_asr(out_filename, test_dir, transc_dir, parse_fn = None, name_fn = None):
+def test_asr(out_filename, test_dir, transc_dir, parse_fn = None, name_fn = None, language = "portuguese"):
     if not parse_fn:
         parse_fn = default_parse_fn
     if not name_fn:
