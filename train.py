@@ -21,6 +21,7 @@ import torch.utils.tensorboard as tensorboard
 
 from model.generator import Generator
 from model.discriminator import MultiscaleDiscriminator, CollaborativeMultibandDiscriminator
+from model.hifigan.models import Discriminator
 from model.latent_classifier import LatentClassifier
 from model.f0_estimator import F0Estimator
 import data.dataset as dataset
@@ -141,6 +142,7 @@ def main():
                   weight_norm = (wn.bottleneck, wn.encoder, wn.decoder),
                   bot_cond = cond.bottleneck, enc_cond = cond.encoder, dec_cond = cond.decoder,
                   output_content_emb = latent_classier)
+    """
     D = CollaborativeMultibandDiscriminator(hp.model.discriminator.num_disc,
                                             train_dataset.num_spk,
                                             hp.model.discriminator.num_layers,
@@ -149,6 +151,8 @@ def main():
                                             hp.model.discriminator.downsampling_factor,
                                             hp.model.discriminator.conditional_dim,
                                             hp.model.discriminator.conditional_spks)
+    """
+    D = Discriminator(train_dataset.num_spk)
 
     if hp.train.lambda_latcls != 0 or hp.log.val_lat_cls:
         C = LatentClassifier(train_dataset.num_spk,hp.model.generator.content_dim)
@@ -259,14 +263,17 @@ def main():
             if iter_count % hp.train.D_step_interval == 0:
                 
                 #Compute fake signal
-                signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
+                #signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
+                signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = False)
                 sig_real_cont_emb = G.content_embedding.clone()
-                signal_real_subsamples = D.get_subsamples(signal_real)
+                #signal_real_subsamples = D.get_subsamples(signal_real)
                 
                 #Real signal losses
-                out_adv_real_list, features_real_list = D(signal_real, label_src, signal_real_subsamples)
+                out_adv_real_list, features_real_list = D(signal_real, label_src)
+                #out_adv_real_list, features_real_list = D(signal_real, label_src, signal_real_subsamples)
                 #Fake signal losses
-                out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt, signal_fake_subsamples)
+                out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt)
+                #out_adv_fake_list, features_fake_list = D(signal_fake.detach(), label_tgt, signal_fake_subsamples)
                 
                 d_loss_adv_real = 0
                 d_loss_adv_fake = 0
@@ -319,10 +326,10 @@ def main():
             #Generator training
             if iter_count % hp.train.G_step_interval == 0: #N steps of D for each steap of G
                 #Fake signal losses
-                signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
-                #signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
+                #signal_fake, signal_fake_subsamples = G(signal_real, c_tgt, c_var = c_f0_conv, out_subsample = True)
+                signal_fake = G(signal_real, c_tgt, c_var = c_f0_conv)
                 sig_real_cont_emb = G.content_embedding.clone()
-                out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt, signal_fake_subsamples)
+                out_adv_fake_list, features_fake_list = D(signal_fake, label_tgt)
 
                 g_loss_adv_fake = torch.zeros(1, device=device)
                 for i, out_adv_fake in enumerate(out_adv_fake_list):
@@ -337,17 +344,17 @@ def main():
                     else:
                         signal_real_jitter = signal_real
                     if hp.train.lambda_feat > 0:
-                        signal_real_subsamples = D.get_subsamples(signal_real_jitter)
-                        _, features_real_list = D(signal_real_jitter, label_src, signal_real_subsamples)
+                        _, features_real_list = D(signal_real_jitter, label_src)
                     
                 g_loss_rec = torch.zeros(1, device=device)
                 if not hp.train.no_conv and hp.train.lambda_rec > 0:
                     #Reconstructed signal losses
-                    signal_rec, signal_rec_subsamples = G(signal_fake.detach(), c_src, c_var = c_f0_src, out_subsample = True)
-                    
+                    #signal_rec, signal_rec_subsamples = G(signal_fake.detach(), c_src, c_var = c_f0_src, out_subsample = True)
+                    signal_rec  = G(signal_fake.detach(), c_src, c_var = c_f0_src, out_subsample = False)
+
                     sig_fake_cont_emb = G.content_embedding.clone()
                     if hp.train.lambda_feat > 0:
-                        _, features_rec_list = D(signal_rec, label_src, signal_rec_subsamples)
+                        _, features_rec_list = D(signal_rec, label_src)
                         g_loss_rec_feat = util.losses.multiscale_feat_loss(features_rec_list, features_real_list ,norm_p = 1)
                         g_loss_rec += hp.train.lambda_feat*g_loss_rec_feat
                         loss['G_loss_rec_feat'] = g_loss_rec_feat
@@ -364,14 +371,13 @@ def main():
                 g_loss_idt = torch.zeros(1, device=device)
                 if hp.train.lambda_idt > 0:
                     if not hp.train.no_conv:
-                        signal_idt, signal_idt_subsamples = G(signal_real, c_src, c_var = c_f0_src, out_subsample = True)
-
+                        #signal_idt, signal_idt_subsamples = G(signal_real, c_src, c_var = c_f0_src, out_subsample = True)
+                        signal_idt  = G(signal_real, c_src, c_var = c_f0_src, out_subsample = False)
                     else:
                         signal_idt = signal_fake
-                        signal_idt_subsamples = signal_fake_subsamples
                         
                     if hp.train.lambda_feat > 0:
-                        _, features_idt_list = D(signal_idt, label_src, signal_idt_subsamples)
+                        _, features_idt_list = D(signal_idt, label_src)
                         g_loss_idt_feat = util.losses.multiscale_feat_loss(features_idt_list, features_real_list ,norm_p = 1)
                         g_loss_idt += hp.train.lambda_feat*g_loss_idt_feat
                         loss['G_loss_idt_feat'] = g_loss_idt_feat
