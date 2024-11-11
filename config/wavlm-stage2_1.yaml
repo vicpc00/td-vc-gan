@@ -3,9 +3,9 @@ data: # root path of train/validation data (either relative/absoulte path is ok)
   validation: ''
 ---
 train:
-  no_conv: True
+  no_conv: False
   num_workers: 24
-  batch_size: 8
+  batch_size: 16
   optimizer: 'adam'
   lr_g: 0.0001
   lr_d: 0.0001
@@ -13,12 +13,12 @@ train:
   G_step_interval: 1
   adam_beta: [0.8, 0.99]
   start_epoch: 0
-  num_epoch: 60
+  num_epoch: 30
   gan_loss: 'lsgan'
   rec_loss: 'feat'
   lambda_cls: 1
   lambda_rec: 0
-  lambda_idt: 20
+  lambda_idt: 5
   lambda_feat: 2
   lambda_spec: 5
   lambda_wave: 0
@@ -26,7 +26,7 @@ train:
   lambda_cont_emb: 10
   lambda_corrupted: 1
   lambda_converted: 0
-  lambda_f0: 0
+  lambda_f0: 1000
   grad_max_norm_D: 
   grad_max_norm_G: 
   max_segment: 8960

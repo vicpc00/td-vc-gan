@@ -5,7 +5,7 @@ data: # root path of train/validation data (either relative/absoulte path is ok)
 train:
   no_conv: True
   num_workers: 24
-  batch_size: 8
+  batch_size: 16
   optimizer: 'adam'
   lr_g: 0.0001
   lr_d: 0.0001
@@ -13,7 +13,7 @@ train:
   G_step_interval: 1
   adam_beta: [0.8, 0.99]
   start_epoch: 0
-  num_epoch: 60
+  num_epoch: 40
   gan_loss: 'lsgan'
   rec_loss: 'feat'
   lambda_cls: 1
