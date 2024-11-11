@@ -100,7 +100,7 @@ def f0_ratio(test_file, ref_file, sr=16000):
         test_mcep, test_f0 = world_analyze(test_signal, sr)
         test_mcep = test_mcep[test_f0 > 0] #Remove silence
         
-    if sum(test_f0 > 0) < 10:
+    if sum(test_f0 > 0) < 3:
         return np.nan
     
     if ref_file in ref_mceps.keys():

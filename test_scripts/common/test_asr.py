@@ -61,7 +61,7 @@ def test_asr(out_filename, test_dir, transc_dir, parse_fn = None, name_fn = None
     model_name = "openai/whisper-medium"
     processor = WhisperProcessor.from_pretrained(model_name)
     model = WhisperForConditionalGeneration.from_pretrained(model_name).to(device)
-    model.config.forced_decoder_ids = processor.get_decoder_prompt_ids(language="portuguese", task="transcribe")
+    model.config.forced_decoder_ids = processor.get_decoder_prompt_ids(language=language, task="transcribe")
     
     orig_list = glob.glob(os.path.join(test_dir, '*X-orig.wav'))
     orig_list.sort()
@@ -138,10 +138,11 @@ def parse_args():
     parser.add_argument('--test_path', required=True)
     parser.add_argument('--save_file', required=True)
     parser.add_argument('--transc_dir', required=True)
+    parser.add_argument('--language', default="portuguese")
     args = parser.parse_args()
     return args
 
 if __name__ == '__main__':
     args = parse_args()
-    test_asr(args.save_file, args.test_path, args.transc_dir)
+    test_asr(args.save_file, args.test_path, args.transc_dir, language = args.language)
 
