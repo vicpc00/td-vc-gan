@@ -471,7 +471,7 @@ def gen_hists(result_dict, spks, test_dir):
     count_self = False
     flattened = {}
     
-    for res in ['mcd_result_conv', 'emb_dist', 'mos_result_conv']:
+    for res in ['mcd_result_conv', 'emb_dist', 'mos_result_conv', 'diff_f0_mean']:
         if res not in result_dict:
             continue
         flattened[res] = []
@@ -489,18 +489,39 @@ def gen_hists(result_dict, spks, test_dir):
     fig.tight_layout()
     idx = 0
     
-    titles = {'mcd_result_conv': 'Mel cepstral distance',
-              'emb_dist': 'Embedding cos similarity',
-              'mos_result_conv': 'Predicted MOS'}
-    bins = {'mcd_result_conv': list(np.linspace(0,4,101)),
-              'emb_dist': list(np.linspace(0,1,101)),
-              'mos_result_conv': list(np.linspace(1,5,101))}
+    titles = {'mcd_result_conv': 'Mel-cepstral distortion',
+              'emb_dist': 'Speaker embedding similarity',
+              'mos_result_conv': 'Predicted MOS',
+              'diff_f0_mean': 'log-f0 difference'}
+    bins = {'mcd_result_conv': list(np.linspace(0.5,3,101)),
+              'emb_dist': list(np.linspace(0.6,1,101)),
+              'mos_result_conv': list(np.linspace(1,5,101)),
+              'diff_f0_mean': list(np.linspace(-1,1,101))}
+    ylims = {'mcd_result_conv': (0, 3),
+              'emb_dist': (0, 13.5),
+              'mos_result_conv': (),
+              'diff_f0_mean': (0, 3.9)}
     
     for idx, res in enumerate(flattened):
         axs[idx].set_title(titles[res])
         axs[idx].hist(flattened[res], bins=bins[res], density=True)
 
     plt.savefig(os.path.join(test_dir,'histograms.png'))
+
+    for idx, res in enumerate(flattened):
+        fig, ax = plt.subplots(figsize=(6.4, 4.8))
+        ax.set_title(titles[res], fontsize='xx-large')
+        ax.hist(flattened[res], bins=bins[res], density=True)
+        ax.tick_params(axis='both', which='major', labelsize='xx-large')
+        ylim = ax.get_ylim()
+        if res == 'diff_f0_mean':
+            if ylim[1] <= ylims[res][1]:
+                ax.set_ylim(ylims[res])
+            else:
+                ax.set_ylim((0,5.7))
+
+        plt.savefig(os.path.join(test_dir,f'hist-{res}.pdf'), bbox_inches='tight')
+
     
 def gen_hist_f0_ratio(result_dict, spks, test_dir):
     count_self = False
@@ -516,18 +537,50 @@ def gen_hist_f0_ratio(result_dict, spks, test_dir):
                 if src_spk == tgt_spk and not count_self: continue
                 flattened[res] += result_dict[res][src_spk][tgt_spk]
                 
-    fig, axs = plt.subplots(1,3, figsize=(12.8,4.8))
-    fig.tight_layout()
-    axs[0].set_title('Ratio of mean F0 - src/conv')
-    axs[0].hist(flattened['f0_ratio'], bins=list(np.linspace(0,3,301)), density=True)
-    axs[1].set_title('Ratio of mean F0 - src/tgt')
-    axs[1].hist(flattened['f0_ratio_orig'], bins=list(np.linspace(0,3,301)), density=True)
-    axs[2].set_title('Difference between mean of logF0 - conv-tgt')
-    axs[2].hist(flattened['diff_f0_mean'], bins=list(np.linspace(-1.5,1.5,301)), density=True)
+    fig, axs = plt.subplots(1,1, figsize=(5,5))
     
+    axs.set_title('Ratio of mean F0 - Source/Converted')
+    axs.set_xlabel('Ratio')
+    axs.set_ylabel('Density')
+    axs.hist(flattened['f0_ratio'], bins=list(np.linspace(0,3,151)), density=True)
+    plt.savefig(os.path.join(test_dir,'histograms_f0_ratio-src_conv-lim.pdf'), bbox_inches='tight')
+    lims = axs.get_ylim()
+
+    fig, axs = plt.subplots(1,1, figsize=(5,5))
+    axs.set_title('Ratio of mean F0 - Source/Converted')
+    axs.set_xlabel('Ratio')
+    axs.set_ylabel('Density')
+    axs.hist(flattened['f0_ratio'], bins=list(np.logspace(-2,2,201, base=2.0)), density=True)
+    axs.set_ylim(lims)
+    axs.set_xscale('log', base=2.0)
+    axs.set_xticks([0.25, 0.5, 1, 2, 4])
+    plt.savefig(os.path.join(test_dir,'histograms_f0_ratio-src_conv-log.pdf'), bbox_inches='tight')
+
+    fig, axs = plt.subplots(1,1, figsize=(5,5))
+    axs.set_title('Ratio of mean F0 - Source/Target')
+    axs.set_xlabel('Ratio')
+    axs.set_ylabel('Density')
+    axs.hist(flattened['f0_ratio_orig'], bins=list(np.linspace(0,3,151)), density=True)
+    axs.set_ylim(lims)
+    plt.savefig(os.path.join(test_dir,'histograms_f0_ratio-src_tgt-lim.pdf'), bbox_inches='tight')
+
+    fig, axs = plt.subplots(1,1, figsize=(5,5))
+    axs.set_title('Ratio of mean F0 - Source/Target')
+    axs.set_xlabel('Ratio')
+    axs.set_ylabel('Density')
+    axs.hist(flattened['f0_ratio_orig'], bins=list(np.logspace(-2,2,201, base=2.0)), density=True)
+    axs.set_xscale('log', base=2.0)
+    axs.set_xticks([0.25, 0.5, 1, 2, 4])
+    plt.savefig(os.path.join(test_dir,'histograms_f0_ratio-src_tgt-log.pdf'), bbox_inches='tight')
+
+
+
+    #axs[2].set_title('Difference between mean of logF0 - conv-tgt')
+    #axs[2].hist(flattened['diff_f0_mean'], bins=list(np.linspace(-1.5,1.5,301)), density=True)
+    #fig.tight_layout()
 
     
-    plt.savefig(os.path.join(test_dir,'histograms_f0_ratio.png'))
+    #plt.savefig(os.path.join(test_dir,'histograms_f0_ratio_log.png'))
 
 def load_dicts(test_dir):
     result_files = ['spkrec_results', 'mosnet_results', 'mcd_results', 'asr_results']
