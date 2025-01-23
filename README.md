@@ -1,4 +1,5 @@
 # TD-VC-GAN - Pitch-controled end-to-end voice conversion
+[Published Paper](https://jcis.sbrt.org.br/jcis/article/view/896)
 [Example page](https://vicpc00.github.io/td-vc-gan/)
 ## Prerequisites
 1. Presequisites can be found on requirements.txt
